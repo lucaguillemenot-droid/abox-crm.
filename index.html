@@ -416,7 +416,8 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
 .checklist-text { font-weight: 500; font-size: 0.92rem; }
 .checklist-desc { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.15rem; }
 .checklist-empty { color: var(--text-secondary); font-size: 0.9rem; padding: 1.5rem; text-align: center; font-style: italic; border: 2px dashed var(--border-light); border-radius: 10px; }
-.checklist-datenav { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+.checklist-datenav { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+.checklist-datepicker { background: var(--bg-tertiary); border: 1px solid var(--border-light); color: var(--text-primary); border-radius: 8px; padding: 0.4rem 0.6rem; font-size: 0.82rem; font-family: inherit; color-scheme: dark; }
 .checklist-date-label { font-weight: 700; font-size: 0.95rem; flex: 1; text-align: center; min-width: 0; }
 .checklist-special-badge { font-size: 0.6rem; background: var(--accent); color: #fff; padding: 0.12rem 0.4rem; border-radius: 6px; margin-left: 0.45rem; font-weight: 700; letter-spacing: 0.4px; vertical-align: middle; }
 .checklist-item-remove { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.95rem; padding: 0 0.3rem; flex-shrink: 0; align-self: center; }
@@ -699,6 +700,7 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
                     <div class="checklist-date-label" id="clDateLabel">I dag</div>
                     <button class="btn-icon" id="clNextDay" title="Neste dag">▶</button>
                     <button class="btn btn-secondary" id="clTodayBtn" style="padding:0.4rem 0.75rem; font-size:0.8rem;">I dag</button>
+                    <input type="date" id="clDatePicker" class="checklist-datepicker">
                 </div>
                 <div class="checklist-progress">
                     <div class="checklist-progress-bar"><div class="checklist-progress-fill" id="tfProgressFill" style="width:0%"></div></div>
@@ -976,9 +978,22 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
             <button class="modal-close" id="closeEditChecklistBtn">×</button>
         </div>
         <div class="modal-body">
-            <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 1.25rem;">
-                Den faste listen vises hver dag for alle ansatte. Endringer her gjelder alle dager. For en oppgave som kun gjelder én bestemt dag, bruk knappen «Legg til oppgave kun for denne dagen» på Min dag-siden.
+            <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 1rem;">
+                Velg hvilken dag denne faste listen gjelder. Den gjentas hver uke – f.eks. vises «Tirsdag» hver tirsdag. Endringer lagres med en gang. For en oppgave som kun gjelder én bestemt dato, bruk «Legg til oppgave kun for denne dagen» på Min dag-siden.
             </p>
+            <div class="form-group">
+                <label>Gjelder</label>
+                <select id="checklistScopeSelect">
+                    <option value="all">Hver dag</option>
+                    <option value="1">Mandag</option>
+                    <option value="2">Tirsdag</option>
+                    <option value="3">Onsdag</option>
+                    <option value="4">Torsdag</option>
+                    <option value="5">Fredag</option>
+                    <option value="6">Lørdag</option>
+                    <option value="0">Søndag</option>
+                </select>
+            </div>
             <div class="task-editor-list" id="taskEditorList"></div>
             <button class="btn-add-task" id="btnAddNewTask">+ Legg til ny oppgave</button>
             <div class="modal-actions">
@@ -1125,8 +1140,11 @@ function isAdmin() {
     return currentUser && currentUser.role === 'admin';
 }
 
+function ymdLocal(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
 function todayStr() {
-    return new Date().toISOString().split('T')[0];
+    return ymdLocal(new Date());
 }
 
 function applyRolePermissions() {
@@ -1445,12 +1463,17 @@ const DB = {
         }
     },
     getDayChecklistProgress(date) {
-        const dayTasks = this.checklistTasks.filter(t => !t.taskDate || t.taskDate === date);
+        const dayTasks = this.tasksForDate(date);
         const done = dayTasks.filter(t => this.getDayCompletion(t.id, date)).length;
         return { done: done, total: dayTasks.length };
     },
     tasksForDate(date) {
-        return this.checklistTasks.filter(t => !t.taskDate || t.taskDate === date).sort((a, b) => (a.order || 0) - (b.order || 0));
+        const w = new Date(date + 'T12:00:00').getDay();
+        return this.checklistTasks.filter(t =>
+            (t.taskDate && t.taskDate === date) ||
+            (!t.taskDate && t.weekday === w) ||
+            (!t.taskDate && (t.weekday === null || t.weekday === undefined))
+        ).sort((a, b) => (a.order || 0) - (b.order || 0));
     },
     async addDayTask(date, title, description) {
         const maxOrder = this.checklistTasks.length ? Math.max(...this.checklistTasks.map(t => t.order || 0)) : 0;
@@ -1466,8 +1489,9 @@ const DB = {
         this.checklistTasks = this.checklistTasks.filter(t => t.id !== id);
         this.checklistCompletions = this.checklistCompletions.filter(c => c.taskId !== id);
     },
-    async saveChecklistTasks(newTasks) {
-        const existingIds = this.checklistTasks.filter(t => !t.taskDate).map(t => t.id);
+    async saveRecurringTasks(scopeWeekday, newTasks) {
+        const inScope = (t) => !t.taskDate && ((scopeWeekday === null && (t.weekday === null || t.weekday === undefined)) || (t.weekday === scopeWeekday));
+        const existingIds = this.checklistTasks.filter(inScope).map(t => t.id);
         const keptIds = newTasks.filter(t => t.id).map(t => t.id);
         const removed = existingIds.filter(id => !keptIds.includes(id));
         if (removed.length) {
@@ -1480,7 +1504,7 @@ const DB = {
                 const { error } = await sb.from('checklist_tasks').update({ title: t.title, description: t.description || '', sort_order: i + 1 }).eq('id', t.id);
                 if (error) throw error;
             } else {
-                const { error } = await sb.from('checklist_tasks').insert({ title: t.title, description: t.description || '', sort_order: i + 1, active: true });
+                const { error } = await sb.from('checklist_tasks').insert({ title: t.title, description: t.description || '', sort_order: i + 1, active: true, weekday: scopeWeekday, task_date: null }).select().single();
                 if (error) throw error;
             }
         }
@@ -1659,7 +1683,7 @@ function mapShiftRow(s) {
     };
 }
 function mapTaskRow(t) {
-    return { id: t.id, title: t.title, description: t.description || '', order: t.sort_order || 0, taskDate: t.task_date || null };
+    return { id: t.id, title: t.title, description: t.description || '', order: t.sort_order || 0, taskDate: t.task_date || null, weekday: (t.weekday === null || t.weekday === undefined) ? null : t.weekday };
 }
 function mapCompletionRow(c) {
     return { id: c.id, taskId: c.task_id, userId: c.user_id, date: c.date, completedAt: c.completed_at };
@@ -2619,7 +2643,7 @@ function formatDateNorwegian(isoOrDateStr) {
 }
 
 function checklistDateLabel(date) {
-    const d = new Date(date + 'T00:00:00');
+    const d = new Date(date + 'T12:00:00');
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
     const weekdays = ['søndag', 'mandag', 'tirsdag', 'onsdag', 'torsdag', 'fredag', 'lørdag'];
@@ -2634,9 +2658,9 @@ function checklistDateLabel(date) {
 
 function shiftChecklistDate(delta) {
     const base = selectedChecklistDate || todayStr();
-    const d = new Date(base + 'T00:00:00');
+    const d = new Date(base + 'T12:00:00');
     d.setDate(d.getDate() + delta);
-    selectedChecklistDate = d.toISOString().split('T')[0];
+    selectedChecklistDate = ymdLocal(d);
     renderTimefoering();
 }
 
@@ -2647,6 +2671,8 @@ function renderTimefoering() {
     // ---- Date label ----
     const lbl = document.getElementById('clDateLabel');
     if (lbl) lbl.textContent = checklistDateLabel(date);
+    const dp = document.getElementById('clDatePicker');
+    if (dp) dp.value = date;
 
     // ---- Shared daily checklist ----
     const tasks = DB.tasksForDate(date);
@@ -2751,11 +2777,24 @@ async function clockOut() {
 // ==== Edit Checklist Modal (admin) ====
 let editingTasks = [];
 
+let editingScope = null; // null = every day; 0-6 = specific weekday
+
+function loadEditingTasksForScope() {
+    const scope = editingScope;
+    editingTasks = DB.checklistTasks
+        .filter(t => !t.taskDate && ((scope === null && (t.weekday === null || t.weekday === undefined)) || t.weekday === scope))
+        .sort((a, b) => (a.order || 0) - (b.order || 0))
+        .map(t => ({ id: t.id, title: t.title, description: t.description || '' }));
+    renderTaskEditor();
+}
+
 function openEditChecklistModal() {
     if (!isAdmin()) { showToast('Kun admin kan redigere sjekklisten', 'error'); return; }
-    // Deep-copy current tasks into editing buffer
-    editingTasks = DB.checklistTasks.filter(t => !t.taskDate).map(t => ({ id: t.id, title: t.title, description: t.description || '' }));
-    renderTaskEditor();
+    const viewedW = new Date((selectedChecklistDate || todayStr()) + 'T12:00:00').getDay();
+    editingScope = viewedW;
+    const sel = document.getElementById('checklistScopeSelect');
+    if (sel) sel.value = String(viewedW);
+    loadEditingTasksForScope();
     document.getElementById('editChecklistModal').classList.add('active');
 }
 
@@ -2789,7 +2828,7 @@ async function saveChecklistChanges() {
     // Validate: all tasks need a title
     const cleaned = editingTasks.filter(t => t.title && t.title.trim()).map(t => ({ id: t.id, title: t.title.trim(), description: (t.description || '').trim() }));
     if (cleaned.length === 0) { showToast('Legg til minst én oppgave', 'error'); return; }
-    await DB.saveChecklistTasks(cleaned);
+    await DB.saveRecurringTasks(editingScope, cleaned);
     document.getElementById('editChecklistModal').classList.remove('active');
     renderTimefoering();
     showToast('Sjekkliste oppdatert ✓');
@@ -2882,6 +2921,8 @@ function initializeTimefoering() {
     document.getElementById('clPrevDay').addEventListener('click', () => shiftChecklistDate(-1));
     document.getElementById('clNextDay').addEventListener('click', () => shiftChecklistDate(1));
     document.getElementById('clTodayBtn').addEventListener('click', () => { selectedChecklistDate = todayStr(); renderTimefoering(); });
+    document.getElementById('clDatePicker').addEventListener('change', (e) => { if (e.target.value) { selectedChecklistDate = e.target.value; renderTimefoering(); } });
+    document.getElementById('checklistScopeSelect').addEventListener('change', (e) => { editingScope = e.target.value === 'all' ? null : parseInt(e.target.value); loadEditingTasksForScope(); });
 
     // Admin: edit recurring checklist template
     document.getElementById('btnEditChecklist').addEventListener('click', openEditChecklistModal);
