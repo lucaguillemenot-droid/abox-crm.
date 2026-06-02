@@ -1305,27 +1305,44 @@ const DB = {
     },
     randomRecentDate() { const d = new Date(); d.setDate(d.getDate() - Math.floor(Math.random() * 30)); return d.toISOString().split('T')[0]; },
     randomTime() { const h = Math.floor(Math.random() * 14) + 8; return (h < 10 ? '0' : '') + h + ':' + (Math.random() > 0.5 ? '00' : '30'); },
-    addMember(member) {
-        member.id = this.members.length > 0 ? Math.max(...this.members.map(m => m.id)) + 1 : 1;
-        member.joined = new Date().toISOString().split('T')[0];
-        member.avatar = ['#dc2626','#3b82f6','#10b981','#f59e0b','#8b5cf6'][member.id % 5];
-        member.lastVisit = null;
-        this.members.push(member);
-        this.activity.push({ id: this.activity.length + 1, memberId: member.id, type: 'Medlem registrert', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
+    async addMember(member) {
+        const colors = ['#dc2626','#3b82f6','#10b981','#f59e0b','#8b5cf6'];
+        const row = {
+            name: member.name, email: member.email, phone: member.phone,
+            membership: member.membership, status: member.status || 'Aktiv',
+            joined: new Date().toISOString().split('T')[0],
+            avatar: colors[this.members.length % 5],
+            last_visit: null
+        };
+        const { data, error } = await sb.from('members').insert(row).select().single();
+        if (error) throw error;
+        const mapped = mapMemberRow(data);
+        this.members.push(mapped);
+        this.activity.push({ id: this.activity.length + 1, memberId: mapped.id, type: 'Medlem registrert', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
         this.save();
-        return member;
+        return mapped;
     },
-    updateMember(id, updates) {
+    async updateMember(id, updates) {
+        const patch = {};
+        ['name','email','phone','membership','status','joined','avatar'].forEach(k => { if (updates[k] !== undefined) patch[k] = updates[k]; });
+        if (updates.lastVisit !== undefined) patch.last_visit = updates.lastVisit;
+        if (updates.cancelledAt !== undefined) patch.cancelled_at = updates.cancelledAt;
+        if (updates.cancelReason !== undefined) patch.cancel_reason = updates.cancelReason;
+        if (updates.cancelNote !== undefined) patch.cancel_note = updates.cancelNote;
+        const { data, error } = await sb.from('members').update(patch).eq('id', id).select().single();
+        if (error) throw error;
         const idx = this.members.findIndex(m => m.id === id);
-        if (idx >= 0) {
-            this.members[idx] = Object.assign({}, this.members[idx], updates);
+        if (idx >= 0) this.members[idx] = mapMemberRow(data);
+        if (updates.name !== undefined) {
             this.bookings.forEach(b => { if (b.memberId === id) b.memberName = updates.name; });
             this.payments.forEach(p => { if (p.memberId === id) p.memberName = updates.name; });
-            this.save();
-            return this.members[idx];
         }
+        this.save();
+        return idx >= 0 ? this.members[idx] : mapMemberRow(data);
     },
-    deleteMember(id) {
+    async deleteMember(id) {
+        const { error } = await sb.from('members').delete().eq('id', id);
+        if (error) throw error;
         this.members = this.members.filter(m => m.id !== id);
         this.bookings = this.bookings.filter(b => b.memberId !== id);
         this.payments = this.payments.filter(p => p.memberId !== id);
@@ -1512,6 +1529,49 @@ async function loadUsersFromSupabase() {
     return DB.users;
 }
 
+// ============================================================
+// SUPABASE — MEMBERS helpers (Supabase 'members' table is source of truth)
+// ============================================================
+function mapMemberRow(m) {
+    return {
+        id: m.id,
+        name: m.name,
+        email: m.email,
+        phone: m.phone,
+        membership: m.membership,
+        status: m.status,
+        joined: m.joined,
+        avatar: m.avatar || '#dc2626',
+        lastVisit: m.last_visit || null,
+        cancelledAt: m.cancelled_at || null,
+        cancelReason: m.cancel_reason || null,
+        cancelNote: m.cancel_note || null
+    };
+}
+
+async function ensureMembersSeeded() {
+    const { data, error } = await sb.from('members').select('id').limit(1);
+    if (error) throw error;
+    if ((!data || data.length === 0) && DB.members.length > 0) {
+        // First device: push the local demo members up to the cloud (in id order)
+        const rows = [...DB.members].sort((a, b) => a.id - b.id).map(m => ({
+            name: m.name, email: m.email, phone: m.phone, membership: m.membership,
+            status: m.status, joined: m.joined, avatar: m.avatar,
+            last_visit: m.lastVisit || null, cancelled_at: m.cancelledAt || null,
+            cancel_reason: m.cancelReason || null, cancel_note: m.cancelNote || null
+        }));
+        const { error: insErr } = await sb.from('members').insert(rows);
+        if (insErr) throw insErr;
+    }
+}
+
+async function loadMembersFromSupabase() {
+    const { data, error } = await sb.from('members').select('*').order('id');
+    if (error) throw error;
+    DB.members = (data || []).map(mapMemberRow);
+    return DB.members;
+}
+
 let currentStep = 1, onboardingData = {}, currentEditId = null, pendingDeleteId = null, pendingAction = null, currentFilter = 'all', currentSearch = '', currentBookingId = null, currentWeekStart = null;
 
 function showToast(message, type) {
@@ -1535,8 +1595,10 @@ async function attemptLogin() {
 
     try {
         DB.load();                     // members/bookings/etc. (still localStorage for now)
-        await ensureUsersSeeded();     // first run only: create admin/ivo/jacob in Supabase
-        await loadUsersFromSupabase(); // pull the live user list from the database
+        await ensureUsersSeeded();       // first run only: create admin/ivo/jacob in Supabase
+        await loadUsersFromSupabase();   // pull the live user list from the database
+        await ensureMembersSeeded();     // first run only: upload demo members to the database
+        await loadMembersFromSupabase(); // pull the live member list from the database
     } catch (e) {
         console.error(e);
         errorMsg.textContent = 'Kunne ikke koble til serveren. Sjekk internett og prøv igjen.';
@@ -2029,7 +2091,7 @@ function openEditModal(memberId) {
     document.getElementById('editMemberModal').classList.add('active');
 }
 
-function saveEdit() {
+async function saveEdit() {
     if (!currentEditId) return;
     const updates = {
         name: document.getElementById('editName').value.trim(),
@@ -2039,7 +2101,7 @@ function saveEdit() {
         status: document.getElementById('editStatus').value
     };
     if (!updates.name || !updates.email || !updates.phone) { showToast('Alle felt må fylles ut', 'error'); return; }
-    DB.updateMember(currentEditId, updates);
+    await DB.updateMember(currentEditId, updates);
     document.getElementById('editMemberModal').classList.remove('active');
     document.getElementById('memberProfileModal').classList.remove('active');
     renderMembers(); renderCalendar(); renderDashboard();
@@ -2059,7 +2121,7 @@ function confirmDelete(memberId) {
 
 async function executePendingAction() {
     if (pendingAction === 'deleteMember') {
-        DB.deleteMember(pendingDeleteId);
+        await DB.deleteMember(pendingDeleteId);
         document.getElementById('memberProfileModal').classList.remove('active');
         renderMembers(); renderCalendar(); renderDashboard();
         showToast('Medlem slettet ✓');
@@ -2071,7 +2133,7 @@ async function executePendingAction() {
     } else if (pendingAction === 'reactivateMember') {
         const member = DB.members.find(m => m.id === pendingDeleteId);
         if (member) {
-            DB.updateMember(pendingDeleteId, {
+            await DB.updateMember(pendingDeleteId, {
                 status: 'Aktiv',
                 cancelledAt: null,
                 cancelReason: null,
@@ -2895,7 +2957,7 @@ function openCancelMembershipModal(memberId) {
     document.getElementById('cancelMembershipModal').classList.add('active');
 }
 
-function confirmCancelMembership() {
+async function confirmCancelMembership() {
     if (!currentEditId) return;
     const reason = document.getElementById('cancelReason').value;
     const note = document.getElementById('cancelNote').value.trim();
@@ -2908,7 +2970,7 @@ function confirmCancelMembership() {
     if (!member) return;
     
     // Update member status and store cancellation info
-    DB.updateMember(currentEditId, {
+    await DB.updateMember(currentEditId, {
         status: 'Inaktiv',
         cancelledAt: date,
         cancelReason: reason,
@@ -2963,7 +3025,7 @@ function reactivateMembership(memberId) {
     document.getElementById('confirmModal').classList.add('active');
 }
 
-function nextStep() {
+async function nextStep() {
     if (currentStep === 1) {
         const name = document.getElementById('memberName').value.trim();
         const email = document.getElementById('memberEmail').value.trim();
@@ -2980,7 +3042,7 @@ function nextStep() {
         onboardingData.paymentMethod = document.getElementById('paymentMethod').value;
     }
     if (currentStep === 4) {
-        const newMember = DB.addMember({ name: onboardingData.name, email: onboardingData.email, phone: onboardingData.phone, membership: onboardingData.membership, status: 'Aktiv' });
+        const newMember = await DB.addMember({ name: onboardingData.name, email: onboardingData.email, phone: onboardingData.phone, membership: onboardingData.membership, status: 'Aktiv' });
         DB.payments.push({ id: DB.payments.length + 1, memberId: newMember.id, memberName: newMember.name, description: 'Medlemskap - ' + onboardingData.membership, date: new Date().toISOString().split('T')[0], amount: parseInt(onboardingData.price) });
         DB.save();
         document.getElementById('onboardingWizard').classList.remove('active');
