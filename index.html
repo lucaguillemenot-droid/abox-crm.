@@ -1334,7 +1334,7 @@ const DB = {
         if (error) throw error;
         const mapped = mapMemberRow(data);
         this.members.push(mapped);
-        this.activity.push({ id: this.activity.length + 1, memberId: mapped.id, type: 'Medlem registrert', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
+        await this.logActivity({ memberId: mapped.id, type: 'Medlem registrert', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
         this.save();
         return mapped;
     },
@@ -1374,7 +1374,7 @@ const DB = {
         if (error) throw error;
         const mapped = mapBookingRow(data);
         this.bookings.push(mapped);
-        this.activity.push({ id: this.activity.length + 1, memberId: mapped.memberId, type: 'Booking opprettet: ' + mapped.court, date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
+        await this.logActivity({ memberId: mapped.memberId, type: 'Booking opprettet: ' + mapped.court, date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
         this.save();
         return mapped;
     },
@@ -1394,7 +1394,7 @@ const DB = {
         const { error } = await sb.from('bookings').delete().eq('id', id);
         if (error) throw error;
         if (booking) {
-            this.activity.push({ id: this.activity.length + 1, memberId: booking.memberId, type: 'Booking avbestilt: ' + booking.court, date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
+            await this.logActivity({ memberId: booking.memberId, type: 'Booking avbestilt: ' + booking.court, date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
         }
         this.bookings = this.bookings.filter(b => b.id !== id);
         this.save();
@@ -1409,6 +1409,41 @@ const DB = {
         this.save();
     },
     markAllNotificationsRead() { this.notifications.forEach(n => n.read = true); this.save(); },
+
+    // PAYMENTS / ACTIVITY / AUTOMATIONS (Supabase-backed)
+    async addPayment(payment) {
+        const { data, error } = await sb.from('payments').insert({ member_id: payment.memberId, member_name: payment.memberName, description: payment.description, date: payment.date, amount: payment.amount }).select().single();
+        if (error) throw error;
+        const mapped = mapPaymentRow(data);
+        this.payments.push(mapped);
+        return mapped;
+    },
+    async logActivity(entry) {
+        try {
+            const { data, error } = await sb.from('activity').insert({ member_id: entry.memberId, type: entry.type, date: entry.date, time: entry.time }).select().single();
+            if (error) throw error;
+            this.activity.push(mapActivityRow(data));
+        } catch (e) {
+            console.error('activity log failed', e);
+            this.activity.push({ id: Date.now(), memberId: entry.memberId, type: entry.type, date: entry.date, time: entry.time });
+        }
+    },
+    async toggleAutomation(id) {
+        const auto = this.automations.find(a => a.id === id);
+        if (!auto) return;
+        const newActive = !auto.active;
+        const { error } = await sb.from('automations').update({ active: newActive }).eq('id', id);
+        if (error) throw error;
+        auto.active = newActive;
+        return auto;
+    },
+    async incrementAutomation(id) {
+        const auto = this.automations.find(a => a.id === id);
+        if (!auto) return;
+        const newCount = (auto.timesTriggered || 0) + 1;
+        auto.timesTriggered = newCount;
+        try { await sb.from('automations').update({ times_triggered: newCount }).eq('id', id); } catch (e) { console.error('automation increment failed', e); }
+    },
 
     // SHIFTS
     getActiveShift(userId) {
@@ -1732,6 +1767,76 @@ async function loadChecklistCompletionsFromSupabase() {
     return DB.checklistCompletions;
 }
 
+// ============================================================
+// SUPABASE — PAYMENTS / ACTIVITY / STAFF / AUTOMATIONS helpers
+// ============================================================
+function mapPaymentRow(p) {
+    return { id: p.id, memberId: p.member_id, memberName: p.member_name, description: p.description, date: p.date, amount: p.amount };
+}
+function mapActivityRow(a) {
+    return { id: a.id, memberId: a.member_id, type: a.type, date: a.date, time: a.time };
+}
+function mapStaffRow(s) {
+    const palette = ['#dc2626','#3b82f6','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16'];
+    return { id: s.id, name: s.name, role: s.role, status: s.status, phone: s.phone, access: s.access, avatar: s.avatar || palette[(s.id || 0) % palette.length] };
+}
+function mapAutomationRow(a) {
+    return { id: a.id, title: a.title, description: a.description, active: a.active, trigger: a.trigger, delay: a.delay, template: a.template, timesTriggered: a.times_triggered || 0 };
+}
+
+async function ensurePaymentsSeeded() {
+    const { data, error } = await sb.from('payments').select('id').limit(1);
+    if (error) throw error;
+    if ((!data || data.length === 0) && DB.payments.length > 0) {
+        const rows = [...DB.payments].sort((a, b) => a.id - b.id).map(p => ({ member_id: p.memberId, member_name: p.memberName, description: p.description, date: p.date, amount: p.amount }));
+        const { error: e2 } = await sb.from('payments').insert(rows); if (e2) throw e2;
+    }
+}
+async function loadPaymentsFromSupabase() {
+    const { data, error } = await sb.from('payments').select('*').order('id');
+    if (error) throw error;
+    DB.payments = (data || []).map(mapPaymentRow);
+}
+async function ensureActivitySeeded() {
+    const { data, error } = await sb.from('activity').select('id').limit(1);
+    if (error) throw error;
+    if ((!data || data.length === 0) && DB.activity.length > 0) {
+        const rows = [...DB.activity].sort((a, b) => a.id - b.id).map(a => ({ member_id: a.memberId, type: a.type, date: a.date, time: a.time }));
+        const { error: e2 } = await sb.from('activity').insert(rows); if (e2) throw e2;
+    }
+}
+async function loadActivityFromSupabase() {
+    const { data, error } = await sb.from('activity').select('*').order('id', { ascending: false }).limit(500);
+    if (error) throw error;
+    DB.activity = (data || []).map(mapActivityRow);
+}
+async function ensureStaffSeeded() {
+    const { data, error } = await sb.from('staff').select('id').limit(1);
+    if (error) throw error;
+    if ((!data || data.length === 0) && DB.staff.length > 0) {
+        const rows = [...DB.staff].sort((a, b) => a.id - b.id).map(s => ({ name: s.name, role: s.role, status: s.status, phone: s.phone, access: s.access }));
+        const { error: e2 } = await sb.from('staff').insert(rows); if (e2) throw e2;
+    }
+}
+async function loadStaffFromSupabase() {
+    const { data, error } = await sb.from('staff').select('*').order('id');
+    if (error) throw error;
+    DB.staff = (data || []).map(mapStaffRow);
+}
+async function ensureAutomationsSeeded() {
+    const { data, error } = await sb.from('automations').select('id').limit(1);
+    if (error) throw error;
+    if ((!data || data.length === 0) && DB.automations.length > 0) {
+        const rows = [...DB.automations].sort((a, b) => a.id - b.id).map(a => ({ title: a.title, description: a.description, active: a.active, trigger: a.trigger, delay: a.delay, template: a.template, times_triggered: a.timesTriggered || 0 }));
+        const { error: e2 } = await sb.from('automations').insert(rows); if (e2) throw e2;
+    }
+}
+async function loadAutomationsFromSupabase() {
+    const { data, error } = await sb.from('automations').select('*').order('id');
+    if (error) throw error;
+    DB.automations = (data || []).map(mapAutomationRow);
+}
+
 let currentStep = 1, onboardingData = {}, currentEditId = null, pendingDeleteId = null, pendingAction = null, currentFilter = 'all', currentSearch = '', currentBookingId = null, currentWeekStart = null, selectedChecklistDate = null;
 
 function showToast(message, type) {
@@ -1766,6 +1871,10 @@ async function attemptLogin() {
         await ensureChecklistSeeded();    // first run only: upload default checklist template
         await loadChecklistTasksFromSupabase();
         await loadChecklistCompletionsFromSupabase();
+        await ensurePaymentsSeeded();    await loadPaymentsFromSupabase();
+        await ensureActivitySeeded();    await loadActivityFromSupabase();
+        await ensureStaffSeeded();       await loadStaffFromSupabase();
+        await ensureAutomationsSeeded(); await loadAutomationsFromSupabase();
     } catch (e) {
         console.error(e);
         errorMsg.textContent = 'Kunne ikke koble til serveren. Sjekk internett og prøv igjen.';
@@ -2023,8 +2132,7 @@ function initializeNotificationDropdown() {
 function triggerAutomation(triggerType, member) {
     const auto = DB.automations.find(a => a.trigger.toLowerCase().includes(triggerType.toLowerCase()) && a.active);
     if (!auto) return;
-    auto.timesTriggered = (auto.timesTriggered || 0) + 1;
-    DB.save();
+    DB.incrementAutomation(auto.id);
     DB.addNotification({ type: 'info', icon: '⚡', title: 'Automatisering kjørt', text: '"' + auto.title + '" → ' + (member ? member.name : 'system'), link: 'automations' });
     showToast('📨 ' + auto.title + ' kjørt', 'info');
     renderNotifications();
@@ -2312,13 +2420,7 @@ async function executePendingAction() {
                 cancelReason: null,
                 cancelNote: null
             });
-            DB.activity.push({
-                id: DB.activity.length + 1,
-                memberId: pendingDeleteId,
-                type: 'Medlemskap reaktivert',
-                date: new Date().toISOString().split('T')[0],
-                time: new Date().toTimeString().substring(0, 5)
-            });
+            await DB.logActivity({ memberId: pendingDeleteId, type: 'Medlemskap reaktivert', date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
             DB.save();
             document.getElementById('memberProfileModal').classList.remove('active');
             renderMembers(); renderDashboard(); renderEconomy();
@@ -2517,10 +2619,10 @@ function renderAutomations() {
     ).join('');
     
     grid.querySelectorAll('.toggle-switch').forEach(toggle => {
-        toggle.addEventListener('click', () => {
+        toggle.addEventListener('click', async () => {
             const id = parseInt(toggle.dataset.autoId);
             const auto = DB.automations.find(a => a.id === id);
-            if (auto) { auto.active = !auto.active; DB.save(); renderAutomations(); showToast('Automatisering ' + (auto.active ? 'aktivert' : 'deaktivert')); }
+            if (auto) { await DB.toggleAutomation(id); renderAutomations(); showToast('Automatisering ' + (auto.active ? 'aktivert' : 'deaktivert')); }
         });
     });
 }
@@ -3125,13 +3227,7 @@ async function confirmCancelMembership() {
     }
     
     // Add to activity log
-    DB.activity.push({
-        id: DB.activity.length + 1,
-        memberId: currentEditId,
-        type: 'Medlemskap sagt opp - ' + reason + (note ? ' (' + note + ')' : ''),
-        date: date,
-        time: new Date().toTimeString().substring(0, 5)
-    });
+    await DB.logActivity({ memberId: currentEditId, type: 'Medlemskap sagt opp - ' + reason + (note ? ' (' + note + ')' : ''), date: date, time: new Date().toTimeString().substring(0, 5) });
     
     // Add notification
     DB.addNotification({
@@ -3181,8 +3277,7 @@ async function nextStep() {
     }
     if (currentStep === 4) {
         const newMember = await DB.addMember({ name: onboardingData.name, email: onboardingData.email, phone: onboardingData.phone, membership: onboardingData.membership, status: 'Aktiv' });
-        DB.payments.push({ id: DB.payments.length + 1, memberId: newMember.id, memberName: newMember.name, description: 'Medlemskap - ' + onboardingData.membership, date: new Date().toISOString().split('T')[0], amount: parseInt(onboardingData.price) });
-        DB.save();
+        await DB.addPayment({ memberId: newMember.id, memberName: newMember.name, description: 'Medlemskap - ' + onboardingData.membership, date: new Date().toISOString().split('T')[0], amount: parseInt(onboardingData.price) });
         document.getElementById('onboardingWizard').classList.remove('active');
         renderMembers(); renderDashboard(); renderEconomy();
         showToast('✅ ' + newMember.name + ' er registrert!');
