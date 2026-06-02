@@ -571,6 +571,7 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
             <li class="nav-item" data-page="members"><span class="nav-icon">👥</span> Medlemmer</li>
             <li class="nav-item" data-page="calendar"><span class="nav-icon">📅</span> Kalender</li>
             <li class="nav-item" data-page="timefoering"><span class="nav-icon">⏱️</span> Min dag</li>
+            <li class="nav-item" data-page="timeliste"><span class="nav-icon">🗓️</span> Timeliste</li>
             <li class="nav-item" data-page="automations"><span class="nav-icon">⚡</span> Automatiseringer</li>
             <li class="nav-item" data-page="staff"><span class="nav-icon">👔</span> Ansatte</li>
             <li class="nav-item" data-page="economy" data-admin-only="true"><span class="nav-icon">💰</span> Økonomi <span class="nav-badge">ADMIN</span></li>
@@ -724,6 +725,22 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
                         <tbody id="tfStaffOverviewBody"></tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+<div id="timelistePage" class="page hidden">
+            <h1 class="page-title">Timeliste</h1>
+            <div class="calendar-header">
+                <div class="calendar-nav">
+                    <button id="tlPrevWeek">◀ Forrige</button>
+                    <span class="calendar-week-display" id="tlWeekLabel">Uke</span>
+                    <button id="tlNextWeek">Neste ▶</button>
+                    <button id="tlThisWeek">Denne uken</button>
+                </div>
+                <button class="btn btn-accent" id="tlAddBtn">+ Ny vakt</button>
+            </div>
+            <div class="calendar-container">
+                <div class="staff-schedule" id="tlGrid"></div>
             </div>
         </div>
 
@@ -1004,6 +1021,41 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
     </div>
 </div>
 
+<!-- VAKT (SHIFT) MODAL -->
+<div id="vaktModal" class="modal">
+    <div class="modal-content small">
+        <div class="modal-header">
+            <h2 id="vaktModalTitle">Ny vakt</h2>
+            <button class="modal-close" id="closeVaktBtn">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group"><label>Ansatt</label><select id="vaktUser"></select></div>
+            <div class="form-group"><label>Dato</label><input type="date" id="vaktDate" class="checklist-datepicker" style="width:100%;"></div>
+            <div style="display:flex; gap:0.75rem;">
+                <div class="form-group" style="flex:1;"><label>Fra</label><input type="time" id="vaktStart" class="checklist-datepicker" style="width:100%;"></div>
+                <div class="form-group" style="flex:1;"><label>Til</label><input type="time" id="vaktEnd" class="checklist-datepicker" style="width:100%;"></div>
+            </div>
+            <div class="form-group"><label>Hvor</label><select id="vaktLocation">
+                <option value="">— Velg —</option>
+                <option value="Resepsjon">Resepsjon</option>
+                <option value="Gym">Gym</option>
+                <option value="Tennis">Tennis</option>
+                <option value="Badminton">Badminton</option>
+                <option value="Sandvolley">Sandvolley</option>
+                <option value="Fotball">Fotball</option>
+                <option value="Multisport">Multisport</option>
+                <option value="Annet">Annet</option>
+            </select></div>
+            <div class="form-group"><label>Notat (valgfritt)</label><input type="text" id="vaktNote" placeholder="..."></div>
+            <div class="modal-actions">
+                <button class="btn btn-danger hidden" id="deleteVaktBtn">Slett</button>
+                <button class="btn btn-secondary" id="cancelVaktBtn">Avbryt</button>
+                <button class="btn btn-accent" id="saveVaktBtn">Lagre</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- ADD/EDIT STAFF MEMBER MODAL (admin only) -->
 <div id="addStaffMemberModal" class="modal">
     <div class="modal-content small">
@@ -1214,7 +1266,7 @@ function handleLogout() {
 
 const DB = {
     members: [], bookings: [], payments: [], activity: [], automations: [], staff: [], notifications: [],
-    users: [], shifts: [], checklistTasks: [], checklistCompletions: [],
+    users: [], shifts: [], checklistTasks: [], checklistCompletions: [], vakter: [],
     
     save() {
         try { localStorage.setItem('aboxDB', JSON.stringify({ members: this.members, bookings: this.bookings, payments: this.payments, activity: this.activity, automations: this.automations, staff: this.staff, notifications: this.notifications, users: this.users, shifts: this.shifts, checklistTasks: this.checklistTasks, checklistCompletions: this.checklistCompletions })); } catch (e) { console.error(e); }
@@ -1485,6 +1537,33 @@ const DB = {
         const { error } = await sb.from('staff').delete().eq('id', id);
         if (error) throw error;
         this.staff = this.staff.filter(s => s.id !== id);
+    },
+    async addVakt(v) {
+        const { data, error } = await sb.from('vakter').insert({ user_id: v.userId, name: v.name, date: v.date, start_time: v.startTime, end_time: v.endTime, location: v.location, note: v.note, created_by: currentUser ? currentUser.username : null }).select().single();
+        if (error) throw error;
+        const mapped = mapVaktRow(data);
+        this.vakter.push(mapped);
+        return mapped;
+    },
+    async updateVakt(id, updates) {
+        const patch = {};
+        if (updates.userId !== undefined) patch.user_id = updates.userId;
+        if (updates.name !== undefined) patch.name = updates.name;
+        if (updates.date !== undefined) patch.date = updates.date;
+        if (updates.startTime !== undefined) patch.start_time = updates.startTime;
+        if (updates.endTime !== undefined) patch.end_time = updates.endTime;
+        if (updates.location !== undefined) patch.location = updates.location;
+        if (updates.note !== undefined) patch.note = updates.note;
+        const { data, error } = await sb.from('vakter').update(patch).eq('id', id).select().single();
+        if (error) throw error;
+        const idx = this.vakter.findIndex(v => v.id === id);
+        if (idx >= 0) this.vakter[idx] = mapVaktRow(data);
+        return idx >= 0 ? this.vakter[idx] : mapVaktRow(data);
+    },
+    async deleteVakt(id) {
+        const { error } = await sb.from('vakter').delete().eq('id', id);
+        if (error) throw error;
+        this.vakter = this.vakter.filter(v => v.id !== id);
     },
 
     // SHIFTS
@@ -1878,8 +1957,18 @@ async function loadAutomationsFromSupabase() {
     if (error) throw error;
     DB.automations = (data || []).map(mapAutomationRow);
 }
+function mapVaktRow(v) {
+    return { id: v.id, userId: v.user_id, name: v.name, date: v.date, startTime: v.start_time, endTime: v.end_time, location: v.location, note: v.note, createdBy: v.created_by };
+}
+async function loadVakterFromSupabase() {
+    try {
+        const { data, error } = await sb.from('vakter').select('*').order('date');
+        if (error) throw error;
+        DB.vakter = (data || []).map(mapVaktRow);
+    } catch (e) { console.error('vakter load failed (table may not exist yet)', e); DB.vakter = []; }
+}
 
-let currentStep = 1, onboardingData = {}, currentEditId = null, pendingDeleteId = null, pendingAction = null, currentFilter = 'all', currentSearch = '', currentBookingId = null, currentWeekStart = null, selectedChecklistDate = null;
+let currentStep = 1, onboardingData = {}, currentEditId = null, pendingDeleteId = null, pendingAction = null, currentFilter = 'all', currentSearch = '', currentBookingId = null, currentWeekStart = null, selectedChecklistDate = null, tlWeekStart = null;
 
 function showToast(message, type) {
     type = type || 'success';
@@ -1917,6 +2006,7 @@ async function attemptLogin() {
         await ensureActivitySeeded();    await loadActivityFromSupabase();
         await ensureStaffSeeded();       await loadStaffFromSupabase();
         await ensureAutomationsSeeded(); await loadAutomationsFromSupabase();
+        await loadVakterFromSupabase();
     } catch (e) {
         console.error(e);
         errorMsg.textContent = 'Kunne ikke koble til serveren. Sjekk internett og prøv igjen.';
@@ -1974,6 +2064,7 @@ function initializeApp() {
     renderEconomy();
     renderReports();
     renderTimefoering();
+    renderTimeliste();
     renderNotifications();
     // Attach event listeners ONCE per page load (not on every login) to avoid
     // duplicate handlers stacking up when a user logs out and back in.
@@ -1990,6 +2081,7 @@ function initializeApp() {
         initializeUserDropdown();
         initializeTimefoering();
         initializeStaffActions();
+        initializeTimeliste();
         window.__aboxWired = true;
     }
 }
@@ -2200,6 +2292,7 @@ function initializeNavigation() {
             if (page === 'economy') renderEconomy();
             if (page === 'reports') renderReports();
             if (page === 'timefoering') renderTimefoering();
+            if (page === 'timeliste') renderTimeliste();
             // Stop live timer when leaving timefoering page (save battery)
             if (page !== 'timefoering' && liveTimerInterval) {
                 clearInterval(liveTimerInterval);
@@ -2469,6 +2562,10 @@ async function executePendingAction() {
             renderMembers(); renderDashboard(); renderEconomy();
             showToast('✓ ' + member.name + ' er reaktivert');
         }
+    } else if (pendingAction === 'deleteVakt') {
+        await DB.deleteVakt(pendingDeleteId);
+        renderTimeliste();
+        showToast('Vakt slettet ✓');
     } else if (pendingAction === 'deleteStaff') {
         await DB.deleteStaff(pendingDeleteId);
         renderStaff();
@@ -2866,6 +2963,112 @@ function formatTimeOfDay(isoString) {
 function formatDateNorwegian(isoOrDateStr) {
     const d = new Date(isoOrDateStr);
     return d.toLocaleDateString('nb-NO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function mondayOf(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+function monthShort(d) { return ['jan.','feb.','mars','apr.','mai','juni','juli','aug.','sep.','okt.','nov.','des.'][d.getMonth()]; }
+
+let editingVaktId = null;
+
+function renderTimeliste() {
+    if (!currentUser) return;
+    if (!tlWeekStart) tlWeekStart = mondayOf(new Date());
+    const grid = document.getElementById('tlGrid');
+    if (!grid) return;
+    const dayNames = ['Mandag','Tirsdag','Onsdag','Torsdag','Fredag','Lørdag','Søndag'];
+    const weekDates = [];
+    for (let i = 0; i < 7; i++) { const d = new Date(tlWeekStart); d.setDate(tlWeekStart.getDate() + i); weekDates.push(d); }
+    const lbl = document.getElementById('tlWeekLabel');
+    if (lbl) lbl.textContent = 'Uke ' + getWeekNumber(tlWeekStart) + ' \u00b7 ' + weekDates[0].getDate() + '.\u2013' + weekDates[6].getDate() + '. ' + monthShort(weekDates[6]);
+    grid.innerHTML = dayNames.map((day, i) => {
+        const ds = ymdLocal(weekDates[i]);
+        const isToday = ds === todayStr();
+        const dayVakter = DB.vakter.filter(v => v.date === ds).sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+        const blocks = dayVakter.length ? dayVakter.map(v =>
+            '<div class="shift-block" data-vakt-id="' + v.id + '" style="cursor:pointer;">' +
+                '<div class="shift-name">' + v.name + '</div>' +
+                '<div class="shift-time">' + (v.startTime || '') + (v.endTime ? ('\u2013' + v.endTime) : '') + (v.location ? (' \u00b7 ' + v.location) : '') + '</div>' +
+            '</div>').join('') : '<div style="color:var(--text-secondary);font-size:0.8rem; padding:0.25rem 0;">Ingen vakter</div>';
+        return '<div class="schedule-day">' +
+            '<div class="schedule-day-header"' + (isToday ? ' style="color:var(--accent);"' : '') + '>' + day + ' ' + weekDates[i].getDate() + '.</div>' +
+            blocks +
+            '<button class="btn-add-task" data-add-vakt="' + ds + '" style="margin-top:0.5rem; padding:0.4rem; font-size:0.75rem;">+ Legg til</button>' +
+        '</div>';
+    }).join('');
+    grid.querySelectorAll('[data-add-vakt]').forEach(b => b.addEventListener('click', () => openVaktModal(null, b.dataset.addVakt)));
+    grid.querySelectorAll('[data-vakt-id]').forEach(b => b.addEventListener('click', () => openVaktModal(parseInt(b.dataset.vaktId), null)));
+}
+
+function openVaktModal(id, prefillDate) {
+    editingVaktId = id || null;
+    const userSel = document.getElementById('vaktUser');
+    userSel.innerHTML = DB.users.map(u => '<option value="' + u.id + '">' + u.name + '</option>').join('');
+    const delBtn = document.getElementById('deleteVaktBtn');
+    if (id) {
+        const v = DB.vakter.find(x => x.id === id);
+        if (!v) return;
+        document.getElementById('vaktModalTitle').textContent = 'Rediger vakt';
+        userSel.value = String(v.userId);
+        document.getElementById('vaktDate').value = v.date;
+        document.getElementById('vaktStart').value = v.startTime || '';
+        document.getElementById('vaktEnd').value = v.endTime || '';
+        document.getElementById('vaktLocation').value = v.location || '';
+        document.getElementById('vaktNote').value = v.note || '';
+        delBtn.classList.remove('hidden');
+    } else {
+        document.getElementById('vaktModalTitle').textContent = 'Ny vakt';
+        if (DB.users.length) userSel.value = String(DB.users[0].id);
+        document.getElementById('vaktDate').value = prefillDate || todayStr();
+        document.getElementById('vaktStart').value = '';
+        document.getElementById('vaktEnd').value = '';
+        document.getElementById('vaktLocation').value = '';
+        document.getElementById('vaktNote').value = '';
+        delBtn.classList.add('hidden');
+    }
+    document.getElementById('vaktModal').classList.add('active');
+}
+
+async function saveVakt() {
+    const userId = parseInt(document.getElementById('vaktUser').value);
+    const user = DB.users.find(u => u.id === userId);
+    const date = document.getElementById('vaktDate').value;
+    const startTime = document.getElementById('vaktStart').value;
+    const endTime = document.getElementById('vaktEnd').value;
+    const location = document.getElementById('vaktLocation').value;
+    const note = document.getElementById('vaktNote').value.trim();
+    if (!user || !date || !startTime) { showToast('Velg ansatt, dato og starttid', 'error'); return; }
+    const btn = document.getElementById('saveVaktBtn');
+    btn.disabled = true;
+    try {
+        if (editingVaktId) { await DB.updateVakt(editingVaktId, { userId, name: user.name, date, startTime, endTime, location, note }); showToast('\u2713 Vakt oppdatert'); }
+        else { await DB.addVakt({ userId, name: user.name, date, startTime, endTime, location, note }); showToast('\u2713 Vakt lagt til'); }
+        document.getElementById('vaktModal').classList.remove('active');
+        renderTimeliste();
+    } catch (e) { console.error(e); showToast('Kunne ikke lagre vakten. Prov igjen.', 'error'); }
+    finally { btn.disabled = false; }
+}
+
+function confirmDeleteVakt() {
+    if (!editingVaktId) return;
+    pendingAction = 'deleteVakt';
+    pendingDeleteId = editingVaktId;
+    document.getElementById('vaktModal').classList.remove('active');
+    document.getElementById('confirmTitle').textContent = 'Slett vakt';
+    document.getElementById('confirmText').textContent = 'Vil du slette denne vakten?';
+    document.getElementById('confirmActionBtn').textContent = 'Slett';
+    document.getElementById('confirmModal').classList.add('active');
+}
+
+function initializeTimeliste() {
+    document.getElementById('tlPrevWeek').addEventListener('click', () => { tlWeekStart = new Date(tlWeekStart); tlWeekStart.setDate(tlWeekStart.getDate() - 7); renderTimeliste(); });
+    document.getElementById('tlNextWeek').addEventListener('click', () => { tlWeekStart = new Date(tlWeekStart); tlWeekStart.setDate(tlWeekStart.getDate() + 7); renderTimeliste(); });
+    document.getElementById('tlThisWeek').addEventListener('click', () => { tlWeekStart = mondayOf(new Date()); renderTimeliste(); });
+    document.getElementById('tlAddBtn').addEventListener('click', () => openVaktModal(null, todayStr()));
+    document.getElementById('closeVaktBtn').addEventListener('click', () => document.getElementById('vaktModal').classList.remove('active'));
+    document.getElementById('cancelVaktBtn').addEventListener('click', () => document.getElementById('vaktModal').classList.remove('active'));
+    document.getElementById('saveVaktBtn').addEventListener('click', saveVakt);
+    document.getElementById('deleteVaktBtn').addEventListener('click', confirmDeleteVakt);
+    document.getElementById('vaktModal').addEventListener('click', e => { if (e.target.id === 'vaktModal') e.target.classList.remove('active'); });
 }
 
 function checklistDateLabel(date) {
