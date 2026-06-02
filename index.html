@@ -450,10 +450,12 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
 
 /* MOBILE */
 @media (max-width: 900px) {
+    body { overflow-x: hidden; }
+    .app-container { flex-direction: column; }
     .mobile-header { display: flex; }
     .sidebar { transform: translateX(-100%); }
     .sidebar.active { transform: translateX(0); }
-    .main-content { margin-left: 0; padding: 1rem; }
+    .main-content { margin-left: 0; padding: 1rem; width: 100%; max-width: 100%; }
     .header { padding-bottom: 1rem; margin-bottom: 1.25rem; }
     .search-bar { max-width: 100%; }
     .stats-grid { grid-template-columns: 1fr; gap: 0.875rem; }
