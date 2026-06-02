@@ -735,17 +735,17 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
         <div id="staffPage" class="page hidden">
             <h1 class="page-title">Ansatte</h1>
             <div class="stats-grid">
-                <div class="stat-card"><div class="stat-header"><span class="stat-title">Totalt ansatte</span><span class="stat-icon">👔</span></div><div class="stat-value">12</div></div>
+                <div class="stat-card"><div class="stat-header"><span class="stat-title">Totalt ansatte</span><span class="stat-icon">👔</span></div><div class="stat-value" id="staffTotalStat">0</div></div>
                 <div class="stat-card"><div class="stat-header"><span class="stat-title">På jobb i dag</span><span class="stat-icon">✅</span></div><div class="stat-value">8</div></div>
                 <div class="stat-card"><div class="stat-header"><span class="stat-title">Ledige vakter</span><span class="stat-icon">📋</span></div><div class="stat-value">3</div></div>
             </div>
             <div class="table-container">
                 <div class="table-header">
                     <h2 class="table-title">Ansattoversikt</h2>
-                    <button class="btn btn-accent">+ Ny ansatt</button>
+                    <button class="btn btn-accent" id="btnAddStaffMember">+ Ny ansatt</button>
                 </div>
                 <table>
-                    <thead><tr><th>Navn</th><th>Rolle</th><th>Status</th><th>Telefon</th><th>Tilgang</th></tr></thead>
+                    <thead><tr><th>Navn</th><th>Rolle</th><th>Status</th><th>Telefon</th><th>Tilgang</th><th></th></tr></thead>
                     <tbody id="staffTableBody"></tbody>
                 </table>
             </div>
@@ -999,6 +999,28 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
             <div class="modal-actions">
                 <button class="btn btn-secondary" id="cancelEditChecklistBtn">Avbryt</button>
                 <button class="btn btn-accent" id="saveChecklistBtn">Lagre sjekkliste</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ADD/EDIT STAFF MEMBER MODAL (admin only) -->
+<div id="addStaffMemberModal" class="modal">
+    <div class="modal-content small">
+        <div class="modal-header">
+            <h2 id="addStaffMemberTitle">Ny ansatt</h2>
+            <button class="modal-close" id="closeAddStaffMemberBtn">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group"><label>Navn</label><input type="text" id="staffMemberName" placeholder="Fullt navn"></div>
+            <div class="form-group"><label>Rolle</label><input type="text" id="staffMemberRole" placeholder="F.eks. Resepsjon, Trener"></div>
+            <div class="form-group"><label>Telefon</label><input type="text" id="staffMemberPhone" placeholder="123 45 678"></div>
+            <div class="form-group"><label>Status</label><select id="staffMemberStatus"><option value="På jobb">På jobb</option><option value="Ledig">Ledig</option></select></div>
+            <div class="form-group"><label>Tilgang</label><select id="staffMemberAccess"><option value="Begrenset">Begrenset</option><option value="Full">Full</option></select></div>
+            <div class="modal-actions">
+                <button class="btn btn-danger hidden" id="deleteStaffMemberBtn">Slett</button>
+                <button class="btn btn-secondary" id="cancelAddStaffMemberBtn">Avbryt</button>
+                <button class="btn btn-accent" id="saveStaffMemberBtn">Lagre</button>
             </div>
         </div>
     </div>
@@ -1443,6 +1465,27 @@ const DB = {
         const newCount = (auto.timesTriggered || 0) + 1;
         auto.timesTriggered = newCount;
         try { await sb.from('automations').update({ times_triggered: newCount }).eq('id', id); } catch (e) { console.error('automation increment failed', e); }
+    },
+    async addStaff(staff) {
+        const { data, error } = await sb.from('staff').insert({ name: staff.name, role: staff.role, status: staff.status || 'Ledig', phone: staff.phone || '', access: staff.access || 'Begrenset' }).select().single();
+        if (error) throw error;
+        const mapped = mapStaffRow(data);
+        this.staff.push(mapped);
+        return mapped;
+    },
+    async updateStaff(id, updates) {
+        const patch = {};
+        ['name','role','status','phone','access'].forEach(k => { if (updates[k] !== undefined) patch[k] = updates[k]; });
+        const { data, error } = await sb.from('staff').update(patch).eq('id', id).select().single();
+        if (error) throw error;
+        const idx = this.staff.findIndex(s => s.id === id);
+        if (idx >= 0) this.staff[idx] = mapStaffRow(data);
+        return idx >= 0 ? this.staff[idx] : mapStaffRow(data);
+    },
+    async deleteStaff(id) {
+        const { error } = await sb.from('staff').delete().eq('id', id);
+        if (error) throw error;
+        this.staff = this.staff.filter(s => s.id !== id);
     },
 
     // SHIFTS
@@ -1947,6 +1990,7 @@ function initializeApp() {
         initializeMobileMenu();
         initializeUserDropdown();
         initializeTimefoering();
+        initializeStaffActions();
         window.__aboxWired = true;
     }
 }
@@ -2426,6 +2470,10 @@ async function executePendingAction() {
             renderMembers(); renderDashboard(); renderEconomy();
             showToast('✓ ' + member.name + ' er reaktivert');
         }
+    } else if (pendingAction === 'deleteStaff') {
+        await DB.deleteStaff(pendingDeleteId);
+        renderStaff();
+        showToast('Ansatt slettet ✓');
     } else if (pendingAction === 'deleteUser') {
         const user = DB.users.find(u => u.id === pendingDeleteId);
         const success = await DB.deleteUser(pendingDeleteId);
@@ -2627,14 +2675,88 @@ function renderAutomations() {
     });
 }
 
+let editingStaffId = null;
+
+function openStaffMemberModal(id) {
+    if (!isAdmin()) { showToast('Kun admin kan administrere ansatte', 'error'); return; }
+    editingStaffId = id || null;
+    const delBtn = document.getElementById('deleteStaffMemberBtn');
+    if (id) {
+        const s = DB.staff.find(x => x.id === id);
+        if (!s) return;
+        document.getElementById('addStaffMemberTitle').textContent = 'Rediger: ' + s.name;
+        document.getElementById('staffMemberName').value = s.name;
+        document.getElementById('staffMemberRole').value = s.role;
+        document.getElementById('staffMemberPhone').value = s.phone || '';
+        document.getElementById('staffMemberStatus').value = s.status || 'Ledig';
+        document.getElementById('staffMemberAccess').value = s.access || 'Begrenset';
+        delBtn.classList.remove('hidden');
+    } else {
+        document.getElementById('addStaffMemberTitle').textContent = 'Ny ansatt';
+        document.getElementById('staffMemberName').value = '';
+        document.getElementById('staffMemberRole').value = '';
+        document.getElementById('staffMemberPhone').value = '';
+        document.getElementById('staffMemberStatus').value = 'Ledig';
+        document.getElementById('staffMemberAccess').value = 'Begrenset';
+        delBtn.classList.add('hidden');
+    }
+    document.getElementById('addStaffMemberModal').classList.add('active');
+}
+
+async function saveStaffMember() {
+    const name = document.getElementById('staffMemberName').value.trim();
+    const role = document.getElementById('staffMemberRole').value.trim();
+    const phone = document.getElementById('staffMemberPhone').value.trim();
+    const status = document.getElementById('staffMemberStatus').value;
+    const access = document.getElementById('staffMemberAccess').value;
+    if (!name || !role) { showToast('Navn og rolle må fylles ut', 'error'); return; }
+    const btn = document.getElementById('saveStaffMemberBtn');
+    btn.disabled = true;
+    try {
+        if (editingStaffId) { await DB.updateStaff(editingStaffId, { name, role, phone, status, access }); showToast('✓ Ansatt oppdatert'); }
+        else { await DB.addStaff({ name, role, phone, status, access }); showToast('✓ Ansatt lagt til'); }
+        document.getElementById('addStaffMemberModal').classList.remove('active');
+        renderStaff();
+    } catch (e) { console.error(e); showToast('Kunne ikke lagre. Prøv igjen.', 'error'); }
+    finally { btn.disabled = false; }
+}
+
+function confirmDeleteStaffMember() {
+    if (!editingStaffId) return;
+    const s = DB.staff.find(x => x.id === editingStaffId);
+    if (!s) return;
+    pendingAction = 'deleteStaff';
+    pendingDeleteId = editingStaffId;
+    document.getElementById('addStaffMemberModal').classList.remove('active');
+    document.getElementById('confirmTitle').textContent = 'Slett ansatt';
+    document.getElementById('confirmText').textContent = 'Vil du slette ' + s.name + ' fra ansattlisten?';
+    document.getElementById('confirmActionBtn').textContent = 'Slett';
+    document.getElementById('confirmModal').classList.add('active');
+}
+
+function initializeStaffActions() {
+    document.getElementById('btnAddStaffMember').addEventListener('click', () => openStaffMemberModal(null));
+    document.getElementById('closeAddStaffMemberBtn').addEventListener('click', () => document.getElementById('addStaffMemberModal').classList.remove('active'));
+    document.getElementById('cancelAddStaffMemberBtn').addEventListener('click', () => document.getElementById('addStaffMemberModal').classList.remove('active'));
+    document.getElementById('saveStaffMemberBtn').addEventListener('click', saveStaffMember);
+    document.getElementById('deleteStaffMemberBtn').addEventListener('click', confirmDeleteStaffMember);
+    document.getElementById('addStaffMemberModal').addEventListener('click', e => { if (e.target.id === 'addStaffMemberModal') e.target.classList.remove('active'); });
+}
+
 function renderStaff() {
     const tbody = document.getElementById('staffTableBody');
+    const admin = isAdmin();
     tbody.innerHTML = DB.staff.map(s => {
         const initials = s.name.split(' ').map(n => n[0]).join('');
-        return '<tr><td><div class="member-info"><div class="member-avatar-small" style="background:' + s.avatar + '">' + initials + '</div>' + s.name + '</div></td><td>' + s.role + '</td><td><span class="badge badge-' + (s.status === 'På jobb' ? 'active' : 'inactive') + '">' + s.status + '</span></td><td>' + s.phone + '</td><td>' + s.access + '</td></tr>';
+        const actions = admin ? '<div class="actions-cell"><button class="btn-icon" data-edit-staff="' + s.id + '" title="Rediger">✏️</button><button class="btn-icon danger" data-delete-staff="' + s.id + '" title="Slett">🗑️</button></div>' : '';
+        return '<tr><td><div class="member-info"><div class="member-avatar-small" style="background:' + s.avatar + '">' + initials + '</div>' + s.name + '</div></td><td>' + s.role + '</td><td><span class="badge badge-' + (s.status === 'På jobb' ? 'active' : 'inactive') + '">' + s.status + '</span></td><td>' + (s.phone || '') + '</td><td>' + s.access + '</td><td>' + actions + '</td></tr>';
     }).join('');
-    
-    const schedule = document.getElementById('staffSchedule');
+    const totalEl = document.getElementById('staffTotalStat');
+    if (totalEl) totalEl.textContent = DB.staff.length;
+    tbody.querySelectorAll('[data-edit-staff]').forEach(b => b.addEventListener('click', () => openStaffMemberModal(parseInt(b.dataset.editStaff))));
+    tbody.querySelectorAll('[data-delete-staff]').forEach(b => b.addEventListener('click', () => { editingStaffId = parseInt(b.dataset.deleteStaff); confirmDeleteStaffMember(); }));
+
+        const schedule = document.getElementById('staffSchedule');
     const days = ['Mandag', 'Tirsdag', 'Onsdag', 'Torsdag', 'Fredag', 'Lørdag', 'Søndag'];
     const shifts = { 0: [{ name: 'Linda A.', time: '08-16' }, { name: 'Per H.', time: '14-22' }], 1: [{ name: 'Ole B.', time: '08-16' }, { name: 'Kari O.', time: '16-22' }], 2: [{ name: 'Linda A.', time: '08-16' }], 3: [{ name: 'Per H.', time: '08-16' }, { name: 'Ole B.', time: '14-22' }], 4: [{ name: 'Kari O.', time: '08-16' }, { name: 'Linda A.', time: '14-22' }], 5: [{ name: 'Per H.', time: '10-18' }], 6: [{ name: 'Ole B.', time: '10-18' }] };
     schedule.innerHTML = days.map((day, i) => {
