@@ -1426,33 +1426,81 @@ const DB = {
         this.save();
     },
 
-    // USERS
-    addUser(user) {
-        user.id = this.users.length > 0 ? Math.max(...this.users.map(u => u.id)) + 1 : 1;
-        user.createdAt = new Date().toISOString();
-        user.displayRole = user.displayRole || (user.role === 'admin' ? 'Administrator' : 'Ansatt');
-        user.access = user.access || (user.role === 'admin' ? 'Full' : 'Begrenset');
-        this.users.push(user);
-        this.save();
-        return user;
+    // USERS — Supabase-backed (source of truth = 'users' table)
+    async addUser(user) {
+        const { data, error } = await sb.from('users').insert({
+            username: user.username,
+            password: user.password,
+            name: user.name,
+            role: user.role
+        }).select().single();
+        if (error) throw error;
+        const mapped = mapUserRow(data);
+        this.users.push(mapped);
+        return mapped;
     },
-    updateUser(id, updates) {
+    async updateUser(id, updates) {
+        const patch = {};
+        if (updates.name !== undefined) patch.name = updates.name;
+        if (updates.username !== undefined) patch.username = updates.username;
+        if (updates.password !== undefined) patch.password = updates.password;
+        if (updates.role !== undefined) patch.role = updates.role;
+        const { data, error } = await sb.from('users').update(patch).eq('id', id).select().single();
+        if (error) throw error;
         const idx = this.users.findIndex(u => u.id === id);
-        if (idx >= 0) {
-            this.users[idx] = Object.assign({}, this.users[idx], updates);
-            this.save();
-            return this.users[idx];
-        }
+        if (idx >= 0) this.users[idx] = mapUserRow(data);
+        return idx >= 0 ? this.users[idx] : mapUserRow(data);
     },
-    deleteUser(id) {
-        // Protect: never delete the original admin account
-        if (id === 1) return false;
+    async deleteUser(id) {
+        // Protect: never delete the main admin account
+        const target = this.users.find(u => u.id === id);
+        if (target && target.username === 'admin') return false;
+        const { error } = await sb.from('users').delete().eq('id', id);
+        if (error) throw error;
         this.users = this.users.filter(u => u.id !== id);
-        // Note: keep shifts for historical records
-        this.save();
+        // Note: shifts are kept for historical records
         return true;
     }
 };
+
+// ============================================================
+// SUPABASE — USERS helpers (Supabase 'users' table is source of truth)
+// ============================================================
+function mapUserRow(u) {
+    return {
+        id: u.id,
+        username: u.username,
+        password: u.password,
+        name: u.name,
+        role: u.role,
+        displayRole: u.role === 'admin' ? 'Administrator' : 'Ansatt',
+        access: u.role === 'admin' ? 'Full' : 'Begrenset',
+        email: u.email || null,
+        phone: u.phone || null,
+        avatar: u.avatar || '#dc2626',
+        createdAt: u.created_at
+    };
+}
+
+async function ensureUsersSeeded() {
+    const { data, error } = await sb.from('users').select('id').limit(1);
+    if (error) throw error;
+    if (!data || data.length === 0) {
+        const { error: insErr } = await sb.from('users').insert([
+            { username: 'admin', password: 'abox2026', name: 'Admin', role: 'admin' },
+            { username: 'ivo', password: 'abox2026', name: 'Ivo Kristiansen', role: 'staff' },
+            { username: 'jacob', password: 'abox2026', name: 'Jacob Nilsen', role: 'staff' }
+        ]);
+        if (insErr) throw insErr;
+    }
+}
+
+async function loadUsersFromSupabase() {
+    const { data, error } = await sb.from('users').select('*').order('id');
+    if (error) throw error;
+    DB.users = (data || []).map(mapUserRow);
+    return DB.users;
+}
 
 let currentStep = 1, onboardingData = {}, currentEditId = null, pendingDeleteId = null, pendingAction = null, currentFilter = 'all', currentSearch = '', currentBookingId = null, currentWeekStart = null;
 
@@ -1465,16 +1513,31 @@ function showToast(message, type) {
     setTimeout(() => toast.remove(), 3000);
 }
 
-function attemptLogin() {
+async function attemptLogin() {
     const username = document.getElementById('username').value.trim().toLowerCase();
     const password = document.getElementById('password').value.trim();
     const errorMsg = document.getElementById('loginError');
-    
-    // Need to load DB first so we can check users
-    DB.load();
-    
+    const loginBtn = document.getElementById('loginButton');
+
+    loginBtn.disabled = true;
+    const origLabel = loginBtn.textContent;
+    loginBtn.textContent = 'Logger inn...';
+
+    try {
+        DB.load();                     // members/bookings/etc. (still localStorage for now)
+        await ensureUsersSeeded();     // first run only: create admin/ivo/jacob in Supabase
+        await loadUsersFromSupabase(); // pull the live user list from the database
+    } catch (e) {
+        console.error(e);
+        errorMsg.textContent = 'Kunne ikke koble til serveren. Sjekk internett og prøv igjen.';
+        errorMsg.classList.remove('hidden');
+        loginBtn.disabled = false;
+        loginBtn.textContent = origLabel;
+        return;
+    }
+
     const userData = DB.users.find(u => u.username.toLowerCase() === username && u.password === password);
-    
+
     if (userData) {
         currentUser = {
             id: userData.id,
@@ -1494,9 +1557,12 @@ function attemptLogin() {
             applyRolePermissions();
             showToast('Velkommen ' + currentUser.name + '!'); 
         } catch (err) { console.error(err); }
-    } else { 
-        errorMsg.classList.remove('hidden'); 
+    } else {
+        errorMsg.textContent = 'Feil brukernavn eller passord';
+        errorMsg.classList.remove('hidden');
     }
+    loginBtn.disabled = false;
+    loginBtn.textContent = origLabel;
 }
 
 document.getElementById('loginButton').addEventListener('click', attemptLogin);
@@ -1981,7 +2047,7 @@ function confirmDelete(memberId) {
     document.getElementById('confirmModal').classList.add('active');
 }
 
-function executePendingAction() {
+async function executePendingAction() {
     if (pendingAction === 'deleteMember') {
         DB.deleteMember(pendingDeleteId);
         document.getElementById('memberProfileModal').classList.remove('active');
@@ -2015,7 +2081,7 @@ function executePendingAction() {
         }
     } else if (pendingAction === 'deleteUser') {
         const user = DB.users.find(u => u.id === pendingDeleteId);
-        const success = DB.deleteUser(pendingDeleteId);
+        const success = await DB.deleteUser(pendingDeleteId);
         if (success && user) {
             renderTimefoering();
             showToast('✓ Konto slettet: ' + user.name);
@@ -2618,7 +2684,7 @@ function openAddStaffUserModal(userId) {
     document.getElementById('addStaffUserModal').classList.add('active');
 }
 
-function saveNewStaffUser() {
+async function saveNewStaffUser() {
     const name = document.getElementById('newStaffName').value.trim();
     const username = document.getElementById('newStaffUsername').value.trim().toLowerCase();
     const password = document.getElementById('newStaffPassword').value.trim();
@@ -2632,15 +2698,28 @@ function saveNewStaffUser() {
     const conflict = DB.users.find(u => u.username.toLowerCase() === username && u.id !== editingUserId);
     if (conflict) { showToast('Brukernavnet "' + username + '" er opptatt', 'error'); return; }
 
-    if (editingUserId) {
-        DB.updateUser(editingUserId, { name: name, username: username, password: password, role: role, displayRole: role === 'admin' ? 'Administrator' : 'Ansatt', access: role === 'admin' ? 'Full' : 'Begrenset' });
-        showToast('✓ Konto oppdatert');
-    } else {
-        DB.addUser({ name: name, username: username, password: password, role: role });
-        showToast('✓ Konto opprettet. ' + name + ' kan logge inn med brukernavn "' + username + '"');
+    const saveBtn = document.getElementById('saveNewStaffUserBtn');
+    const origLabel = saveBtn.textContent;
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Lagrer...';
+    try {
+        if (editingUserId) {
+            await DB.updateUser(editingUserId, { name: name, username: username, password: password, role: role });
+            showToast('✓ Konto oppdatert');
+        } else {
+            await DB.addUser({ name: name, username: username, password: password, role: role });
+            showToast('✓ Konto opprettet. ' + name + ' kan logge inn med brukernavn "' + username + '"');
+        }
+        document.getElementById('addStaffUserModal').classList.remove('active');
+        renderTimefoering();
+    } catch (e) {
+        console.error(e);
+        const msg = (e && e.code === '23505') ? 'Brukernavnet "' + username + '" er opptatt' : 'Kunne ikke lagre kontoen. Prøv igjen.';
+        showToast(msg, 'error');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = origLabel;
     }
-    document.getElementById('addStaffUserModal').classList.remove('active');
-    renderTimefoering();
 }
 
 function confirmDeleteCurrentStaffUser() {
