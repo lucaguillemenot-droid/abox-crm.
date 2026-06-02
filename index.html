@@ -416,6 +416,11 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
 .checklist-text { font-weight: 500; font-size: 0.92rem; }
 .checklist-desc { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.15rem; }
 .checklist-empty { color: var(--text-secondary); font-size: 0.9rem; padding: 1.5rem; text-align: center; font-style: italic; border: 2px dashed var(--border-light); border-radius: 10px; }
+.checklist-datenav { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+.checklist-date-label { font-weight: 700; font-size: 0.95rem; flex: 1; text-align: center; min-width: 0; }
+.checklist-special-badge { font-size: 0.6rem; background: var(--accent); color: #fff; padding: 0.12rem 0.4rem; border-radius: 6px; margin-left: 0.45rem; font-weight: 700; letter-spacing: 0.4px; vertical-align: middle; }
+.checklist-item-remove { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.95rem; padding: 0 0.3rem; flex-shrink: 0; align-self: center; }
+.checklist-item-remove:hover { color: var(--danger); }
 
 /* Shift history */
 .shift-history { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -683,66 +688,40 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
         <div id="timefoeringPage" class="page hidden">
             <h1 class="page-title">Min dag</h1>
 
-            <!-- Your status / clock in-out -->
-            <div class="shift-hero">
-                <div class="shift-hero-info">
-                    <div class="shift-hero-greeting" id="tfGreeting">Hei!</div>
-                    <div class="shift-hero-status" id="tfStatus">Du er ikke på jobb</div>
-                    <div class="shift-hero-timer inactive" id="tfTimer">00:00:00</div>
-                </div>
-                <div class="shift-hero-actions">
-                    <button class="btn-clock-in" id="btnClockIn">🟢 Start vakt</button>
-                    <button class="btn-clock-out hidden" id="btnClockOut">🔴 Avslutt vakt</button>
-                </div>
-            </div>
-
-            <div class="tf-grid">
-                <!-- Who's at work now -->
-                <div class="tf-card">
-                    <div class="tf-card-header">
-                        <div class="tf-card-title">🟢 På jobb nå</div>
-                        <div class="tf-card-count" id="tfWorkersCount">0</div>
-                    </div>
-                    <div class="worker-list" id="tfWorkersList"></div>
-                </div>
-
-                <!-- Your personal checklist -->
-                <div class="tf-card">
-                    <div class="tf-card-header">
-                        <div class="tf-card-title">📋 Min sjekkliste</div>
-                        <button class="btn-icon" id="btnEditChecklist" title="Rediger sjekkliste (admin)" data-admin-only="true">⚙️</button>
-                    </div>
-                    <div class="checklist-progress">
-                        <div class="checklist-progress-bar"><div class="checklist-progress-fill" id="tfProgressFill" style="width:0%"></div></div>
-                        <div class="checklist-progress-text" id="tfProgressText">0/0</div>
-                    </div>
-                    <div class="checklist-items" id="tfChecklistItems"></div>
-                </div>
-            </div>
-
-            <!-- Admin only: all staff overview -->
-            <div class="tf-card" data-admin-only="true" style="margin-bottom: 1.5rem;">
+            <!-- Shared daily checklist (date-navigable) -->
+            <div class="tf-card" style="margin-bottom: 1.5rem;">
                 <div class="tf-card-header">
-                    <div class="tf-card-title">👥 Alle ansatte i dag</div>
+                    <div class="tf-card-title">📋 Dagens sjekkliste</div>
+                    <button class="btn-icon" id="btnEditChecklist" title="Rediger fast sjekkliste (admin)" data-admin-only="true">⚙️ Fast liste</button>
+                </div>
+                <div class="checklist-datenav">
+                    <button class="btn-icon" id="clPrevDay" title="Forrige dag">◀</button>
+                    <div class="checklist-date-label" id="clDateLabel">I dag</div>
+                    <button class="btn-icon" id="clNextDay" title="Neste dag">▶</button>
+                    <button class="btn btn-secondary" id="clTodayBtn" style="padding:0.4rem 0.75rem; font-size:0.8rem;">I dag</button>
+                </div>
+                <div class="checklist-progress">
+                    <div class="checklist-progress-bar"><div class="checklist-progress-fill" id="tfProgressFill" style="width:0%"></div></div>
+                    <div class="checklist-progress-text" id="tfProgressText">0/0</div>
+                </div>
+                <div class="checklist-items" id="tfChecklistItems"></div>
+                <button class="btn-add-task" id="btnAddDayTask" data-admin-only="true" style="margin-top:0.75rem;">+ Legg til oppgave kun for denne dagen</button>
+            </div>
+
+            <!-- Admin only: staff accounts -->
+            <div class="tf-card" data-admin-only="true">
+                <div class="tf-card-header">
+                    <div class="tf-card-title">👥 Ansatt-kontoer</div>
                     <button class="btn btn-accent" id="btnAddStaffUser">+ Ny ansatt-konto</button>
                 </div>
                 <div style="overflow-x: auto;">
                     <table class="staff-overview-table" id="tfStaffOverview">
                         <thead>
-                            <tr><th>Ansatt</th><th>Status</th><th>Innstemplet</th><th>Sjekkliste i dag</th><th></th></tr>
+                            <tr><th>Ansatt</th><th>Rolle</th><th></th></tr>
                         </thead>
                         <tbody id="tfStaffOverviewBody"></tbody>
                     </table>
                 </div>
-            </div>
-
-            <!-- Your shift history -->
-            <div class="tf-card">
-                <div class="tf-card-header">
-                    <div class="tf-card-title">📊 Mine siste vakter</div>
-                    <div class="tf-card-count" id="tfShiftTotal">Denne uke: 0t</div>
-                </div>
-                <div class="shift-history" id="tfShiftHistory"></div>
             </div>
         </div>
 
@@ -998,13 +977,32 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
         </div>
         <div class="modal-body">
             <p style="color: var(--text-secondary); font-size: 0.88rem; margin-bottom: 1.25rem;">
-                Endringer gjelder for alle ansatte fra og med neste dag. Fullførte oppgaver fra tidligere dager beholdes.
+                Den faste listen vises hver dag for alle ansatte. Endringer her gjelder alle dager. For en oppgave som kun gjelder én bestemt dag, bruk knappen «Legg til oppgave kun for denne dagen» på Min dag-siden.
             </p>
             <div class="task-editor-list" id="taskEditorList"></div>
             <button class="btn-add-task" id="btnAddNewTask">+ Legg til ny oppgave</button>
             <div class="modal-actions">
                 <button class="btn btn-secondary" id="cancelEditChecklistBtn">Avbryt</button>
                 <button class="btn btn-accent" id="saveChecklistBtn">Lagre sjekkliste</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ADD DAY TASK MODAL (admin only) -->
+<div id="addDayTaskModal" class="modal">
+    <div class="modal-content small">
+        <div class="modal-header">
+            <h2 id="addDayTaskTitle">Ny oppgave for dagen</h2>
+            <button class="modal-close" id="closeAddDayTaskBtn">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 1rem;">Denne oppgaven vises kun på den valgte dagen, i tillegg til den faste listen.</p>
+            <div class="form-group"><label>Oppgave</label><input type="text" id="dayTaskTitle" placeholder="F.eks. Vask vinduer"></div>
+            <div class="form-group"><label>Beskrivelse (valgfritt)</label><input type="text" id="dayTaskDesc" placeholder="Detaljer"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="cancelAddDayTaskBtn">Avbryt</button>
+                <button class="btn btn-accent" id="saveDayTaskBtn">Legg til</button>
             </div>
         </div>
     </div>
@@ -1430,29 +1428,46 @@ const DB = {
     },
 
     // CHECKLIST
-    getCompletion(userId, taskId, date) {
-        return this.checklistCompletions.find(c => c.userId === userId && c.taskId === taskId && c.date === date);
+    getDayCompletion(taskId, date) {
+        return this.checklistCompletions.find(c => c.taskId === taskId && c.date === date);
     },
-    async toggleCompletion(userId, taskId, date) {
-        const existing = this.getCompletion(userId, taskId, date);
-        if (existing) {
-            const { error } = await sb.from('checklist_completions').delete().eq('id', existing.id);
+    async toggleDayCompletion(taskId, date) {
+        const existing = this.checklistCompletions.filter(c => c.taskId === taskId && c.date === date);
+        if (existing.length) {
+            const ids = existing.map(c => c.id);
+            const { error } = await sb.from('checklist_completions').delete().in('id', ids);
             if (error) throw error;
-            this.checklistCompletions = this.checklistCompletions.filter(c => c !== existing);
+            this.checklistCompletions = this.checklistCompletions.filter(c => !(c.taskId === taskId && c.date === date));
         } else {
-            const u = this.users.find(x => x.id === userId);
-            const { data, error } = await sb.from('checklist_completions').insert({ task_id: taskId, user_id: userId, username: u ? u.username : null, date: date }).select().single();
+            const { data, error } = await sb.from('checklist_completions').insert({ task_id: taskId, user_id: currentUser ? currentUser.id : null, username: currentUser ? currentUser.username : null, date: date }).select().single();
             if (error) throw error;
             this.checklistCompletions.push(mapCompletionRow(data));
         }
     },
-    getUserChecklistProgress(userId, date) {
-        const total = this.checklistTasks.length;
-        const done = this.checklistCompletions.filter(c => c.userId === userId && c.date === date).length;
-        return { done: done, total: total };
+    getDayChecklistProgress(date) {
+        const dayTasks = this.checklistTasks.filter(t => !t.taskDate || t.taskDate === date);
+        const done = dayTasks.filter(t => this.getDayCompletion(t.id, date)).length;
+        return { done: done, total: dayTasks.length };
+    },
+    tasksForDate(date) {
+        return this.checklistTasks.filter(t => !t.taskDate || t.taskDate === date).sort((a, b) => (a.order || 0) - (b.order || 0));
+    },
+    async addDayTask(date, title, description) {
+        const maxOrder = this.checklistTasks.length ? Math.max(...this.checklistTasks.map(t => t.order || 0)) : 0;
+        const { data, error } = await sb.from('checklist_tasks').insert({ title: title, description: description || '', sort_order: maxOrder + 1, active: true, task_date: date }).select().single();
+        if (error) throw error;
+        const mapped = mapTaskRow(data);
+        this.checklistTasks.push(mapped);
+        return mapped;
+    },
+    async deleteTask(id) {
+        const { error } = await sb.from('checklist_tasks').delete().eq('id', id);
+        if (error) throw error;
+        this.checklistTasks = this.checklistTasks.filter(t => t.id !== id);
+        this.checklistCompletions = this.checklistCompletions.filter(c => c.taskId !== id);
     },
     async saveChecklistTasks(newTasks) {
-        const existingIds = this.checklistTasks.map(t => t.id);
+        const existingIds = this.checklistTasks.filter(t => !t.taskDate).map(t => t.id);
         const keptIds = newTasks.filter(t => t.id).map(t => t.id);
         const removed = existingIds.filter(id => !keptIds.includes(id));
         if (removed.length) {
@@ -1644,7 +1659,7 @@ function mapShiftRow(s) {
     };
 }
 function mapTaskRow(t) {
-    return { id: t.id, title: t.title, description: t.description || '', order: t.sort_order || 0 };
+    return { id: t.id, title: t.title, description: t.description || '', order: t.sort_order || 0, taskDate: t.task_date || null };
 }
 function mapCompletionRow(c) {
     return { id: c.id, taskId: c.task_id, userId: c.user_id, date: c.date, completedAt: c.completed_at };
@@ -1693,7 +1708,7 @@ async function loadChecklistCompletionsFromSupabase() {
     return DB.checklistCompletions;
 }
 
-let currentStep = 1, onboardingData = {}, currentEditId = null, pendingDeleteId = null, pendingAction = null, currentFilter = 'all', currentSearch = '', currentBookingId = null, currentWeekStart = null;
+let currentStep = 1, onboardingData = {}, currentEditId = null, pendingDeleteId = null, pendingAction = null, currentFilter = 'all', currentSearch = '', currentBookingId = null, currentWeekStart = null, selectedChecklistDate = null;
 
 function showToast(message, type) {
     type = type || 'success';
@@ -2603,188 +2618,115 @@ function formatDateNorwegian(isoOrDateStr) {
     return d.toLocaleDateString('nb-NO', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+function checklistDateLabel(date) {
+    const d = new Date(date + 'T00:00:00');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diff = Math.round((d.getTime() - today.getTime()) / 86400000);
+    const weekdays = ['søndag', 'mandag', 'tirsdag', 'onsdag', 'torsdag', 'fredag', 'lørdag'];
+    const months = ['jan.', 'feb.', 'mars', 'apr.', 'mai', 'juni', 'juli', 'aug.', 'sep.', 'okt.', 'nov.', 'des.'];
+    let prefix = '';
+    if (diff === 0) prefix = 'I dag · ';
+    else if (diff === 1) prefix = 'I morgen · ';
+    else if (diff === -1) prefix = 'I går · ';
+    const wd = weekdays[d.getDay()];
+    return prefix + wd.charAt(0).toUpperCase() + wd.slice(1) + ' ' + d.getDate() + '. ' + months[d.getMonth()];
+}
+
+function shiftChecklistDate(delta) {
+    const base = selectedChecklistDate || todayStr();
+    const d = new Date(base + 'T00:00:00');
+    d.setDate(d.getDate() + delta);
+    selectedChecklistDate = d.toISOString().split('T')[0];
+    renderTimefoering();
+}
+
 function renderTimefoering() {
     if (!currentUser) return;
-    const today = todayStr();
-    const myShift = DB.getActiveShift(currentUser.id);
+    const date = selectedChecklistDate || todayStr();
 
-    // ---- Hero (greeting + status + timer) ----
-    document.getElementById('tfGreeting').textContent = 'Hei, ' + currentUser.name.split(' ')[0] + '!';
-    const statusEl = document.getElementById('tfStatus');
-    const timerEl = document.getElementById('tfTimer');
-    const btnIn = document.getElementById('btnClockIn');
-    const btnOut = document.getElementById('btnClockOut');
+    // ---- Date label ----
+    const lbl = document.getElementById('clDateLabel');
+    if (lbl) lbl.textContent = checklistDateLabel(date);
 
-    if (myShift) {
-        statusEl.textContent = 'På jobb siden ' + formatTimeOfDay(myShift.clockIn);
-        statusEl.classList.add('active');
-        timerEl.classList.remove('inactive');
-        btnIn.classList.add('hidden');
-        btnOut.classList.remove('hidden');
-        // Start live ticker
-        if (liveTimerInterval) clearInterval(liveTimerInterval);
-        const tick = () => {
-            const elapsed = Date.now() - new Date(myShift.clockIn).getTime();
-            timerEl.textContent = formatDuration(elapsed);
-            // Also update "På jobb nå" durations
-            document.querySelectorAll('.worker-duration[data-clock-in]').forEach(el => {
-                const started = new Date(el.dataset.clockIn).getTime();
-                el.textContent = formatDurationShort(Date.now() - started);
-            });
-        };
-        tick();
-        liveTimerInterval = setInterval(tick, 1000);
-    } else {
-        statusEl.textContent = 'Du er ikke på jobb';
-        statusEl.classList.remove('active');
-        timerEl.textContent = '00:00:00';
-        timerEl.classList.add('inactive');
-        btnIn.classList.remove('hidden');
-        btnOut.classList.add('hidden');
-        if (liveTimerInterval) { clearInterval(liveTimerInterval); liveTimerInterval = null; }
-        // Still update worker durations even if I'm off
-        document.querySelectorAll('.worker-duration[data-clock-in]').forEach(el => {
-            const started = new Date(el.dataset.clockIn).getTime();
-            el.textContent = formatDurationShort(Date.now() - started);
-        });
-    }
-
-    // ---- Who is at work now ----
-    const activeShifts = DB.getAllActiveShifts().sort((a, b) => a.clockIn.localeCompare(b.clockIn));
-    document.getElementById('tfWorkersCount').textContent = activeShifts.length;
-    const workersList = document.getElementById('tfWorkersList');
-    if (activeShifts.length === 0) {
-        workersList.innerHTML = '<div class="worker-empty">Ingen er på jobb akkurat nå</div>';
-    } else {
-        workersList.innerHTML = activeShifts.map(s => {
-            const isYou = s.userId === currentUser.id;
-            const initials = s.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-            const elapsed = Date.now() - new Date(s.clockIn).getTime();
-            return '<div class="worker-row' + (isYou ? ' is-you' : '') + '">' +
-                '<div class="worker-avatar-sm">' + initials + '</div>' +
-                '<div class="worker-info">' +
-                    '<div class="worker-name">' + s.name + (isYou ? ' (deg)' : '') + '</div>' +
-                    '<div class="worker-time">Startet ' + formatTimeOfDay(s.clockIn) + '</div>' +
-                '</div>' +
-                '<div class="worker-duration' + (isYou ? ' is-you' : '') + '" data-clock-in="' + s.clockIn + '">' + formatDurationShort(elapsed) + '</div>' +
-            '</div>';
-        }).join('');
-    }
-
-    // ---- Personal checklist ----
-    const tasks = [...DB.checklistTasks].sort((a, b) => a.order - b.order);
-    const progress = DB.getUserChecklistProgress(currentUser.id, today);
+    // ---- Shared daily checklist ----
+    const tasks = DB.tasksForDate(date);
+    const progress = DB.getDayChecklistProgress(date);
     document.getElementById('tfProgressText').textContent = progress.done + '/' + progress.total;
     const pct = progress.total > 0 ? (progress.done / progress.total) * 100 : 0;
     document.getElementById('tfProgressFill').style.width = pct + '%';
 
     const checklistEl = document.getElementById('tfChecklistItems');
     if (tasks.length === 0) {
-        checklistEl.innerHTML = '<div class="checklist-empty">Ingen oppgaver. ' + (isAdmin() ? 'Klikk ⚙️ for å legge til.' : 'Be admin legge til.') + '</div>';
+        checklistEl.innerHTML = '<div class="checklist-empty">Ingen oppgaver denne dagen.' + (isAdmin() ? ' Legg til en under, eller rediger den faste listen.' : '') + '</div>';
     } else {
         checklistEl.innerHTML = tasks.map(t => {
-            const done = !!DB.getCompletion(currentUser.id, t.id, today);
+            const done = !!DB.getDayCompletion(t.id, date);
+            const special = !!t.taskDate;
             return '<div class="checklist-item' + (done ? ' completed' : '') + '" data-task-id="' + t.id + '">' +
                 '<div class="checklist-check"></div>' +
                 '<div class="checklist-body">' +
-                    '<div class="checklist-text">' + t.title + '</div>' +
+                    '<div class="checklist-text">' + t.title + (special ? '<span class="checklist-special-badge">KUN DENNE DAGEN</span>' : '') + '</div>' +
                     (t.description ? '<div class="checklist-desc">' + t.description + '</div>' : '') +
                 '</div>' +
+                ((isAdmin() && special) ? '<button class="checklist-item-remove" data-remove-task="' + t.id + '" title="Fjern oppgave">🗑️</button>' : '') +
             '</div>';
         }).join('');
         checklistEl.querySelectorAll('.checklist-item').forEach(item => {
-            item.addEventListener('click', async () => {
+            item.addEventListener('click', async (e) => {
+                if (e.target.closest('[data-remove-task]')) return;
                 const taskId = parseInt(item.dataset.taskId);
-                await DB.toggleCompletion(currentUser.id, taskId, today);
-                renderTimefoering(); // re-render
+                await DB.toggleDayCompletion(taskId, date);
+                renderTimefoering();
+            });
+        });
+        checklistEl.querySelectorAll('[data-remove-task]').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const taskId = parseInt(btn.dataset.removeTask);
+                await DB.deleteTask(taskId);
+                renderTimefoering();
+                showToast('Oppgave fjernet ✓');
             });
         });
     }
 
-    // ---- Admin only: all staff overview ----
+    // ---- Admin: staff accounts ----
     if (isAdmin()) {
-        const staffUsers = DB.users.filter(u => u.id !== currentUser.id || u.role !== 'admin').concat(
-            DB.users.filter(u => u.id === currentUser.id)
-        ).filter((u, i, arr) => arr.findIndex(x => x.id === u.id) === i);
-        // Simpler: just list all users
         const allUsers = [...DB.users].sort((a, b) => {
             if (a.role === b.role) return a.name.localeCompare(b.name);
             return a.role === 'admin' ? -1 : 1;
         });
         const tbody = document.getElementById('tfStaffOverviewBody');
-        tbody.innerHTML = allUsers.map(u => {
-            const activeShift = DB.getActiveShift(u.id);
-            const p = DB.getUserChecklistProgress(u.id, today);
-            const pctU = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
-            const statusText = activeShift ? 'På jobb (' + formatTimeOfDay(activeShift.clockIn) + ')' : 'Ikke på jobb';
-            const clockInText = activeShift ? formatTimeOfDay(activeShift.clockIn) : '—';
-            const canDelete = u.id !== 1; // can't delete main admin
-            const actionBtns = '<div style="display:flex; gap:0.25rem;">' +
-                (activeShift ? '<button class="btn-icon" data-force-clockout="' + activeShift.id + '" title="Tvunget avstempling">⏹️</button>' : '') +
-                '<button class="btn-icon" data-edit-user="' + u.id + '" title="Rediger">✏️</button>' +
-                (canDelete ? '<button class="btn-icon danger" data-delete-user="' + u.id + '" title="Slett konto">🗑️</button>' : '') +
-            '</div>';
-            return '<tr>' +
-                '<td><strong>' + u.name + '</strong><div style="font-size:0.78rem; color: var(--text-secondary);">@' + u.username + (u.role === 'admin' ? ' · admin' : '') + '</div></td>' +
-                '<td><span class="status-dot ' + (activeShift ? 'online' : 'offline') + '"></span>' + statusText + '</td>' +
-                '<td>' + clockInText + '</td>' +
-                '<td><div class="mini-progress"><div class="mini-progress-bar"><div class="mini-progress-fill" style="width:' + pctU + '%"></div></div>' + p.done + '/' + p.total + '</div></td>' +
-                '<td>' + actionBtns + '</td>' +
-            '</tr>';
-        }).join('');
-        // Wire up admin actions
-        tbody.querySelectorAll('[data-force-clockout]').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const shiftId = parseInt(btn.dataset.forceClockout);
-                await DB.endShift(shiftId);
-                renderTimefoering();
-                showToast('Ansatt stemplet ut ✓');
+        if (tbody) {
+            tbody.innerHTML = allUsers.map(u => {
+                const canDelete = u.username !== 'admin';
+                const actionBtns = '<div style="display:flex; gap:0.25rem;">' +
+                    '<button class="btn-icon" data-edit-user="' + u.id + '" title="Rediger">✏️</button>' +
+                    (canDelete ? '<button class="btn-icon danger" data-delete-user="' + u.id + '" title="Slett konto">🗑️</button>' : '') +
+                '</div>';
+                return '<tr>' +
+                    '<td><strong>' + u.name + '</strong><div style="font-size:0.78rem; color: var(--text-secondary);">@' + u.username + '</div></td>' +
+                    '<td>' + (u.role === 'admin' ? 'Administrator' : 'Ansatt') + '</td>' +
+                    '<td>' + actionBtns + '</td>' +
+                '</tr>';
+            }).join('');
+            tbody.querySelectorAll('[data-edit-user]').forEach(btn => {
+                btn.addEventListener('click', () => openAddStaffUserModal(parseInt(btn.dataset.editUser)));
             });
-        });
-        tbody.querySelectorAll('[data-edit-user]').forEach(btn => {
-            btn.addEventListener('click', () => openAddStaffUserModal(parseInt(btn.dataset.editUser)));
-        });
-        tbody.querySelectorAll('[data-delete-user]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const userId = parseInt(btn.dataset.deleteUser);
-                const user = DB.users.find(u => u.id === userId);
-                if (!user) return;
-                pendingAction = 'deleteUser';
-                pendingDeleteId = userId;
-                document.getElementById('confirmTitle').textContent = 'Slett ansatt-konto';
-                document.getElementById('confirmText').textContent = 'Vil du slette kontoen til ' + user.name + '? Tidligere vakter og sjekklister blir beholdt.';
-                document.getElementById('confirmActionBtn').textContent = 'Slett';
-                document.getElementById('confirmModal').classList.add('active');
+            tbody.querySelectorAll('[data-delete-user]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const userId = parseInt(btn.dataset.deleteUser);
+                    const user = DB.users.find(u => u.id === userId);
+                    if (!user) return;
+                    pendingAction = 'deleteUser';
+                    pendingDeleteId = userId;
+                    document.getElementById('confirmTitle').textContent = 'Slett ansatt-konto';
+                    document.getElementById('confirmText').textContent = 'Vil du slette kontoen til ' + user.name + '?';
+                    document.getElementById('confirmActionBtn').textContent = 'Slett';
+                    document.getElementById('confirmModal').classList.add('active');
+                });
             });
-        });
-    }
-
-    // ---- My shift history + week total ----
-    const mine = DB.getUserShifts(currentUser.id).slice(0, 15);
-    const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
-    const weekShifts = DB.getUserShifts(currentUser.id).filter(s => new Date(s.clockIn) >= weekAgo);
-    let weekMs = 0;
-    weekShifts.forEach(s => {
-        const end = s.clockOut ? new Date(s.clockOut).getTime() : Date.now();
-        weekMs += end - new Date(s.clockIn).getTime();
-    });
-    document.getElementById('tfShiftTotal').textContent = 'Denne uke: ' + formatDurationShort(weekMs);
-
-    const historyEl = document.getElementById('tfShiftHistory');
-    if (mine.length === 0) {
-        historyEl.innerHTML = '<div class="worker-empty">Ingen vakter registrert ennå. Start din første vakt øverst!</div>';
-    } else {
-        historyEl.innerHTML = mine.map(s => {
-            const isActive = !s.clockOut;
-            const end = s.clockOut ? new Date(s.clockOut).getTime() : Date.now();
-            const duration = end - new Date(s.clockIn).getTime();
-            const timeRange = formatTimeOfDay(s.clockIn) + ' - ' + (s.clockOut ? formatTimeOfDay(s.clockOut) : 'Pågår');
-            return '<div class="shift-row' + (isActive ? ' active' : '') + '">' +
-                '<div><div class="shift-row-date">' + formatDateNorwegian(s.date) + (isActive ? ' 🟢' : '') + '</div>' +
-                '<div class="shift-row-time">' + timeRange + '</div></div>' +
-                '<div class="shift-row-duration">' + formatDurationShort(duration) + '</div>' +
-            '</div>';
-        }).join('');
+        }
     }
 }
 
@@ -2812,7 +2754,7 @@ let editingTasks = [];
 function openEditChecklistModal() {
     if (!isAdmin()) { showToast('Kun admin kan redigere sjekklisten', 'error'); return; }
     // Deep-copy current tasks into editing buffer
-    editingTasks = DB.checklistTasks.map(t => ({ id: t.id, title: t.title, description: t.description || '' }));
+    editingTasks = DB.checklistTasks.filter(t => !t.taskDate).map(t => ({ id: t.id, title: t.title, description: t.description || '' }));
     renderTaskEditor();
     document.getElementById('editChecklistModal').classList.add('active');
 }
@@ -2936,46 +2878,63 @@ function confirmDeleteCurrentStaffUser() {
 }
 
 function initializeTimefoering() {
-    // Clock in / out
-    document.getElementById('btnClockIn').addEventListener('click', clockIn);
-    document.getElementById('btnClockOut').addEventListener('click', clockOut);
+    // Date navigation
+    document.getElementById('clPrevDay').addEventListener('click', () => shiftChecklistDate(-1));
+    document.getElementById('clNextDay').addEventListener('click', () => shiftChecklistDate(1));
+    document.getElementById('clTodayBtn').addEventListener('click', () => { selectedChecklistDate = todayStr(); renderTimefoering(); });
 
-    // Admin: edit checklist template
+    // Admin: edit recurring checklist template
     document.getElementById('btnEditChecklist').addEventListener('click', openEditChecklistModal);
-    document.getElementById('closeEditChecklistBtn').addEventListener('click', () => {
-        document.getElementById('editChecklistModal').classList.remove('active');
-    });
-    document.getElementById('cancelEditChecklistBtn').addEventListener('click', () => {
-        document.getElementById('editChecklistModal').classList.remove('active');
-    });
+    document.getElementById('closeEditChecklistBtn').addEventListener('click', () => { document.getElementById('editChecklistModal').classList.remove('active'); });
+    document.getElementById('cancelEditChecklistBtn').addEventListener('click', () => { document.getElementById('editChecklistModal').classList.remove('active'); });
     document.getElementById('saveChecklistBtn').addEventListener('click', saveChecklistChanges);
     document.getElementById('btnAddNewTask').addEventListener('click', () => {
         editingTasks.push({ id: null, title: '', description: '' });
         renderTaskEditor();
-        // Focus the new row's title input
         const rows = document.querySelectorAll('.task-editor-row');
-        if (rows.length > 0) {
-            const lastInput = rows[rows.length - 1].querySelector('.task-title-input');
-            if (lastInput) lastInput.focus();
-        }
+        if (rows.length > 0) { const lastInput = rows[rows.length - 1].querySelector('.task-title-input'); if (lastInput) lastInput.focus(); }
     });
-    document.getElementById('editChecklistModal').addEventListener('click', e => {
-        if (e.target.id === 'editChecklistModal') e.target.classList.remove('active');
-    });
+    document.getElementById('editChecklistModal').addEventListener('click', e => { if (e.target.id === 'editChecklistModal') e.target.classList.remove('active'); });
+
+    // Admin: add a special task for the viewed day
+    document.getElementById('btnAddDayTask').addEventListener('click', openAddDayTaskModal);
+    document.getElementById('closeAddDayTaskBtn').addEventListener('click', () => { document.getElementById('addDayTaskModal').classList.remove('active'); });
+    document.getElementById('cancelAddDayTaskBtn').addEventListener('click', () => { document.getElementById('addDayTaskModal').classList.remove('active'); });
+    document.getElementById('saveDayTaskBtn').addEventListener('click', saveDayTask);
+    document.getElementById('addDayTaskModal').addEventListener('click', e => { if (e.target.id === 'addDayTaskModal') e.target.classList.remove('active'); });
 
     // Admin: add / edit staff user
     document.getElementById('btnAddStaffUser').addEventListener('click', () => openAddStaffUserModal(null));
-    document.getElementById('closeAddStaffUserBtn').addEventListener('click', () => {
-        document.getElementById('addStaffUserModal').classList.remove('active');
-    });
-    document.getElementById('cancelAddStaffUserBtn').addEventListener('click', () => {
-        document.getElementById('addStaffUserModal').classList.remove('active');
-    });
+    document.getElementById('closeAddStaffUserBtn').addEventListener('click', () => { document.getElementById('addStaffUserModal').classList.remove('active'); });
+    document.getElementById('cancelAddStaffUserBtn').addEventListener('click', () => { document.getElementById('addStaffUserModal').classList.remove('active'); });
     document.getElementById('saveNewStaffUserBtn').addEventListener('click', saveNewStaffUser);
     document.getElementById('deleteStaffUserBtn').addEventListener('click', confirmDeleteCurrentStaffUser);
-    document.getElementById('addStaffUserModal').addEventListener('click', e => {
-        if (e.target.id === 'addStaffUserModal') e.target.classList.remove('active');
-    });
+    document.getElementById('addStaffUserModal').addEventListener('click', e => { if (e.target.id === 'addStaffUserModal') e.target.classList.remove('active'); });
+}
+
+function openAddDayTaskModal() {
+    if (!isAdmin()) return;
+    const date = selectedChecklistDate || todayStr();
+    document.getElementById('addDayTaskTitle').textContent = 'Ny oppgave for ' + checklistDateLabel(date);
+    document.getElementById('dayTaskTitle').value = '';
+    document.getElementById('dayTaskDesc').value = '';
+    document.getElementById('addDayTaskModal').classList.add('active');
+}
+
+async function saveDayTask() {
+    const title = document.getElementById('dayTaskTitle').value.trim();
+    const desc = document.getElementById('dayTaskDesc').value.trim();
+    if (!title) { showToast('Skriv inn en oppgave', 'error'); return; }
+    const date = selectedChecklistDate || todayStr();
+    const btn = document.getElementById('saveDayTaskBtn');
+    btn.disabled = true;
+    try {
+        await DB.addDayTask(date, title, desc);
+        document.getElementById('addDayTaskModal').classList.remove('active');
+        renderTimefoering();
+        showToast('✓ Oppgave lagt til for denne dagen');
+    } catch (e) { console.error(e); showToast('Kunne ikke legge til oppgaven', 'error'); }
+    finally { btn.disabled = false; }
 }
 
 function initializeReportActions() {
