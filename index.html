@@ -1352,19 +1352,31 @@ const DB = {
     getMemberBookings(id) { return this.bookings.filter(b => b.memberId === id); },
     getMemberPayments(id) { return this.payments.filter(p => p.memberId === id); },
     getMemberActivity(id) { return this.activity.filter(a => a.memberId === id); },
-    addBooking(booking) {
-        booking.id = this.bookings.length > 0 ? Math.max(...this.bookings.map(b => b.id)) + 1 : 1;
-        this.bookings.push(booking);
-        this.activity.push({ id: this.activity.length + 1, memberId: booking.memberId, type: 'Booking opprettet: ' + booking.court, date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
+    async addBooking(booking) {
+        const row = { member_id: booking.memberId, member_name: booking.memberName, court: booking.court, type: booking.type, date: booking.date, time: booking.time, status: booking.status || 'Kommende', price: booking.price };
+        const { data, error } = await sb.from('bookings').insert(row).select().single();
+        if (error) throw error;
+        const mapped = mapBookingRow(data);
+        this.bookings.push(mapped);
+        this.activity.push({ id: this.activity.length + 1, memberId: mapped.memberId, type: 'Booking opprettet: ' + mapped.court, date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
         this.save();
-        return booking;
+        return mapped;
     },
-    updateBooking(id, updates) {
+    async updateBooking(id, updates) {
+        const patch = {};
+        if (updates.memberId !== undefined) patch.member_id = updates.memberId;
+        if (updates.memberName !== undefined) patch.member_name = updates.memberName;
+        ['court','type','date','time','status','price'].forEach(k => { if (updates[k] !== undefined) patch[k] = updates[k]; });
+        const { data, error } = await sb.from('bookings').update(patch).eq('id', id).select().single();
+        if (error) throw error;
         const idx = this.bookings.findIndex(b => b.id === id);
-        if (idx >= 0) { this.bookings[idx] = Object.assign({}, this.bookings[idx], updates); this.save(); return this.bookings[idx]; }
+        if (idx >= 0) this.bookings[idx] = mapBookingRow(data);
+        return idx >= 0 ? this.bookings[idx] : mapBookingRow(data);
     },
-    deleteBooking(id) {
+    async deleteBooking(id) {
         const booking = this.bookings.find(b => b.id === id);
+        const { error } = await sb.from('bookings').delete().eq('id', id);
+        if (error) throw error;
         if (booking) {
             this.activity.push({ id: this.activity.length + 1, memberId: booking.memberId, type: 'Booking avbestilt: ' + booking.court, date: new Date().toISOString().split('T')[0], time: new Date().toTimeString().substring(0, 5) });
         }
@@ -1572,6 +1584,43 @@ async function loadMembersFromSupabase() {
     return DB.members;
 }
 
+// ============================================================
+// SUPABASE — BOOKINGS helpers (Supabase 'bookings' table is source of truth)
+// ============================================================
+function mapBookingRow(b) {
+    return {
+        id: b.id,
+        memberId: b.member_id,
+        memberName: b.member_name,
+        court: b.court,
+        type: b.type,
+        date: b.date,
+        time: b.time,
+        status: b.status,
+        price: b.price
+    };
+}
+
+async function ensureBookingsSeeded() {
+    const { data, error } = await sb.from('bookings').select('id').limit(1);
+    if (error) throw error;
+    if ((!data || data.length === 0) && DB.bookings.length > 0) {
+        const rows = [...DB.bookings].sort((a, b) => a.id - b.id).map(b => ({
+            member_id: b.memberId, member_name: b.memberName, court: b.court, type: b.type,
+            date: b.date, time: b.time, status: b.status, price: b.price
+        }));
+        const { error: insErr } = await sb.from('bookings').insert(rows);
+        if (insErr) throw insErr;
+    }
+}
+
+async function loadBookingsFromSupabase() {
+    const { data, error } = await sb.from('bookings').select('*').order('id');
+    if (error) throw error;
+    DB.bookings = (data || []).map(mapBookingRow);
+    return DB.bookings;
+}
+
 let currentStep = 1, onboardingData = {}, currentEditId = null, pendingDeleteId = null, pendingAction = null, currentFilter = 'all', currentSearch = '', currentBookingId = null, currentWeekStart = null;
 
 function showToast(message, type) {
@@ -1597,8 +1646,10 @@ async function attemptLogin() {
         DB.load();                     // members/bookings/etc. (still localStorage for now)
         await ensureUsersSeeded();       // first run only: create admin/ivo/jacob in Supabase
         await loadUsersFromSupabase();   // pull the live user list from the database
-        await ensureMembersSeeded();     // first run only: upload demo members to the database
-        await loadMembersFromSupabase(); // pull the live member list from the database
+        await ensureMembersSeeded();      // first run only: upload demo members to the database
+        await loadMembersFromSupabase();  // pull the live member list from the database
+        await ensureBookingsSeeded();     // first run only: upload demo bookings to the database
+        await loadBookingsFromSupabase(); // pull the live booking list from the database
     } catch (e) {
         console.error(e);
         errorMsg.textContent = 'Kunne ikke koble til serveren. Sjekk internett og prøv igjen.';
@@ -2126,7 +2177,7 @@ async function executePendingAction() {
         renderMembers(); renderCalendar(); renderDashboard();
         showToast('Medlem slettet ✓');
     } else if (pendingAction === 'deleteBooking') {
-        DB.deleteBooking(pendingDeleteId);
+        await DB.deleteBooking(pendingDeleteId);
         document.getElementById('bookingModal').classList.remove('active');
         renderCalendar(); renderDashboard();
         showToast('Booking avbestilt ✓');
@@ -2274,7 +2325,7 @@ function updateBookingPrice() {
     document.getElementById('memberDiscountNote').textContent = discountNote;
 }
 
-function saveBooking() {
+async function saveBooking() {
     const memberId = parseInt(document.getElementById('bookingMember').value);
     const member = DB.members.find(m => m.id === memberId);
     const courtSelect = document.getElementById('bookingCourt');
@@ -2296,10 +2347,10 @@ function saveBooking() {
     const isFuture = date >= today;
     
     if (currentBookingId) {
-        DB.updateBooking(currentBookingId, { memberId: memberId, memberName: member.name, court: court, type: courtType, date: date, time: time, price: finalPrice, status: isFuture ? 'Kommende' : 'Fullført' });
+        await DB.updateBooking(currentBookingId, { memberId: memberId, memberName: member.name, court: court, type: courtType, date: date, time: time, price: finalPrice, status: isFuture ? 'Kommende' : 'Fullført' });
         showToast('Booking oppdatert ✓');
     } else {
-        DB.addBooking({ memberId: memberId, memberName: member.name, court: court, type: courtType, date: date, time: time, price: finalPrice, status: isFuture ? 'Kommende' : 'Fullført' });
+        await DB.addBooking({ memberId: memberId, memberName: member.name, court: court, type: courtType, date: date, time: time, price: finalPrice, status: isFuture ? 'Kommende' : 'Fullført' });
         showToast('Booking opprettet ✓');
         triggerAutomation('booking', member);
     }
@@ -2985,6 +3036,10 @@ async function confirmCancelMembership() {
             b.status = 'Kansellert (oppsagt medlem)';
         }
     });
+    if (cancelledBookings > 0) {
+        try { await sb.from('bookings').update({ status: 'Kansellert (oppsagt medlem)' }).eq('member_id', currentEditId).gte('date', today); }
+        catch (e) { console.error('booking cancel sync failed', e); }
+    }
     
     // Add to activity log
     DB.activity.push({
