@@ -745,7 +745,7 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
                     <button class="btn btn-accent" id="btnAddStaffMember">+ Ny ansatt</button>
                 </div>
                 <table>
-                    <thead><tr><th>Navn</th><th>Rolle</th><th>Status</th><th>Telefon</th><th>Tilgang</th><th></th></tr></thead>
+                    <thead><tr><th>Navn</th><th>Rolle</th><th>Telefon</th><th>Tilgang</th><th></th></tr></thead>
                     <tbody id="staffTableBody"></tbody>
                 </table>
             </div>
@@ -1015,7 +1015,6 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
             <div class="form-group"><label>Navn</label><input type="text" id="staffMemberName" placeholder="Fullt navn"></div>
             <div class="form-group"><label>Rolle</label><input type="text" id="staffMemberRole" placeholder="F.eks. Resepsjon, Trener"></div>
             <div class="form-group"><label>Telefon</label><input type="text" id="staffMemberPhone" placeholder="123 45 678"></div>
-            <div class="form-group"><label>Status</label><select id="staffMemberStatus"><option value="På jobb">På jobb</option><option value="Ledig">Ledig</option></select></div>
             <div class="form-group"><label>Tilgang</label><select id="staffMemberAccess"><option value="Begrenset">Begrenset</option><option value="Full">Full</option></select></div>
             <div class="modal-actions">
                 <button class="btn btn-danger hidden" id="deleteStaffMemberBtn">Slett</button>
@@ -1764,7 +1763,7 @@ function mapTaskRow(t) {
     return { id: t.id, title: t.title, description: t.description || '', order: t.sort_order || 0, taskDate: t.task_date || null, weekday: (t.weekday === null || t.weekday === undefined) ? null : t.weekday };
 }
 function mapCompletionRow(c) {
-    return { id: c.id, taskId: c.task_id, userId: c.user_id, date: c.date, completedAt: c.completed_at };
+    return { id: c.id, taskId: c.task_id, userId: c.user_id, username: c.username || null, date: c.date, completedAt: c.completed_at };
 }
 
 async function ensureShiftsSeeded() {
@@ -2688,7 +2687,6 @@ function openStaffMemberModal(id) {
         document.getElementById('staffMemberName').value = s.name;
         document.getElementById('staffMemberRole').value = s.role;
         document.getElementById('staffMemberPhone').value = s.phone || '';
-        document.getElementById('staffMemberStatus').value = s.status || 'Ledig';
         document.getElementById('staffMemberAccess').value = s.access || 'Begrenset';
         delBtn.classList.remove('hidden');
     } else {
@@ -2696,7 +2694,6 @@ function openStaffMemberModal(id) {
         document.getElementById('staffMemberName').value = '';
         document.getElementById('staffMemberRole').value = '';
         document.getElementById('staffMemberPhone').value = '';
-        document.getElementById('staffMemberStatus').value = 'Ledig';
         document.getElementById('staffMemberAccess').value = 'Begrenset';
         delBtn.classList.add('hidden');
     }
@@ -2707,14 +2704,13 @@ async function saveStaffMember() {
     const name = document.getElementById('staffMemberName').value.trim();
     const role = document.getElementById('staffMemberRole').value.trim();
     const phone = document.getElementById('staffMemberPhone').value.trim();
-    const status = document.getElementById('staffMemberStatus').value;
     const access = document.getElementById('staffMemberAccess').value;
     if (!name || !role) { showToast('Navn og rolle må fylles ut', 'error'); return; }
     const btn = document.getElementById('saveStaffMemberBtn');
     btn.disabled = true;
     try {
-        if (editingStaffId) { await DB.updateStaff(editingStaffId, { name, role, phone, status, access }); showToast('✓ Ansatt oppdatert'); }
-        else { await DB.addStaff({ name, role, phone, status, access }); showToast('✓ Ansatt lagt til'); }
+        if (editingStaffId) { await DB.updateStaff(editingStaffId, { name, role, phone, access }); showToast('✓ Ansatt oppdatert'); }
+        else { await DB.addStaff({ name, role, phone, access }); showToast('✓ Ansatt lagt til'); }
         document.getElementById('addStaffMemberModal').classList.remove('active');
         renderStaff();
     } catch (e) { console.error(e); showToast('Kunne ikke lagre. Prøv igjen.', 'error'); }
@@ -2749,7 +2745,7 @@ function renderStaff() {
     tbody.innerHTML = DB.staff.map(s => {
         const initials = s.name.split(' ').map(n => n[0]).join('');
         const actions = admin ? '<div class="actions-cell"><button class="btn-icon" data-edit-staff="' + s.id + '" title="Rediger">✏️</button><button class="btn-icon danger" data-delete-staff="' + s.id + '" title="Slett">🗑️</button></div>' : '';
-        return '<tr><td><div class="member-info"><div class="member-avatar-small" style="background:' + s.avatar + '">' + initials + '</div>' + s.name + '</div></td><td>' + s.role + '</td><td><span class="badge badge-' + (s.status === 'På jobb' ? 'active' : 'inactive') + '">' + s.status + '</span></td><td>' + (s.phone || '') + '</td><td>' + s.access + '</td><td>' + actions + '</td></tr>';
+        return '<tr><td><div class="member-info"><div class="member-avatar-small" style="background:' + s.avatar + '">' + initials + '</div>' + s.name + '</div></td><td>' + s.role + '</td><td>' + (s.phone || '') + '</td><td>' + s.access + '</td><td>' + actions + '</td></tr>';
     }).join('');
     const totalEl = document.getElementById('staffTotalStat');
     if (totalEl) totalEl.textContent = DB.staff.length;
@@ -2915,16 +2911,24 @@ function renderTimefoering() {
     if (tasks.length === 0) {
         checklistEl.innerHTML = '<div class="checklist-empty">Ingen oppgaver denne dagen.' + (isAdmin() ? ' Legg til en under, eller rediger den faste listen.' : '') + '</div>';
     } else {
+        const admin = isAdmin();
         checklistEl.innerHTML = tasks.map(t => {
-            const done = !!DB.getDayCompletion(t.id, date);
+            const comp = DB.getDayCompletion(t.id, date);
+            const done = !!comp;
             const special = !!t.taskDate;
+            let whoHtml = '';
+            if (done && admin) {
+                const who = comp.userId ? (((DB.users.find(u => u.id === comp.userId) || {}).name) || comp.username) : comp.username;
+                if (who) whoHtml = '<div class="checklist-desc" style="color:var(--success);">✓ Huket av ' + who + '</div>';
+            }
             return '<div class="checklist-item' + (done ? ' completed' : '') + '" data-task-id="' + t.id + '">' +
                 '<div class="checklist-check"></div>' +
                 '<div class="checklist-body">' +
                     '<div class="checklist-text">' + t.title + (special ? '<span class="checklist-special-badge">KUN DENNE DAGEN</span>' : '') + '</div>' +
                     (t.description ? '<div class="checklist-desc">' + t.description + '</div>' : '') +
+                    whoHtml +
                 '</div>' +
-                ((isAdmin() && special) ? '<button class="checklist-item-remove" data-remove-task="' + t.id + '" title="Fjern oppgave">🗑️</button>' : '') +
+                ((admin && special) ? '<button class="checklist-item-remove" data-remove-task="' + t.id + '" title="Fjern oppgave">🗑️</button>' : '') +
             '</div>';
         }).join('');
         checklistEl.querySelectorAll('.checklist-item').forEach(item => {
