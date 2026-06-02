@@ -1979,22 +1979,35 @@ async function attemptLogin() {
     loginBtn.textContent = 'Logger inn...';
 
     try {
-        DB.load();                     // members/bookings/etc. (still localStorage for now)
-        await ensureUsersSeeded();       // first run only: create admin/ivo/jacob in Supabase
-        await loadUsersFromSupabase();   // pull the live user list from the database
-        await ensureMembersSeeded();      // first run only: upload demo members to the database
-        await loadMembersFromSupabase();  // pull the live member list from the database
-        await ensureBookingsSeeded();     // first run only: upload demo bookings to the database
-        await loadBookingsFromSupabase(); // pull the live booking list from the database
-        await ensureShiftsSeeded();       // first run only: upload demo shift history
-        await loadShiftsFromSupabase();   // pull shifts from the database
-        await ensureChecklistSeeded();    // first run only: upload default checklist template
+        DB.load();                     // local demo seed (used only to populate a blank database)
+        await ensureUsersSeeded();       // login accounts (admin/ivo/jacob) — always ensured
+        await loadUsersFromSupabase();
+
+        // Demo data is seeded ONLY when the database is blank (no members yet).
+        // Once real members exist, we never re-seed demo content into any table.
+        const { data: memCheck, error: memErr } = await sb.from('members').select('id').limit(1);
+        if (memErr) throw memErr;
+        const freshDb = !memCheck || memCheck.length === 0;
+        if (freshDb) {
+            await ensureMembersSeeded();
+            await ensureBookingsSeeded();
+            await ensureShiftsSeeded();
+            await ensurePaymentsSeeded();
+            await ensureActivitySeeded();
+            await ensureStaffSeeded();
+            await ensureAutomationsSeeded();
+        }
+        await ensureChecklistSeeded();   // default checklist template — useful even in real use
+
+        await loadMembersFromSupabase();
+        await loadBookingsFromSupabase();
+        await loadShiftsFromSupabase();
         await loadChecklistTasksFromSupabase();
         await loadChecklistCompletionsFromSupabase();
-        await ensurePaymentsSeeded();    await loadPaymentsFromSupabase();
-        await ensureActivitySeeded();    await loadActivityFromSupabase();
-        await ensureStaffSeeded();       await loadStaffFromSupabase();
-        await ensureAutomationsSeeded(); await loadAutomationsFromSupabase();
+        await loadPaymentsFromSupabase();
+        await loadActivityFromSupabase();
+        await loadStaffFromSupabase();
+        await loadAutomationsFromSupabase();
         await loadVakterFromSupabase();
     } catch (e) {
         console.error(e);
