@@ -468,6 +468,12 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
     .btn-icon { padding: 0.3rem 0.5rem; font-size: 0.8rem; }
     .table-header { padding: 1rem; }
     .table-title { font-size: 1rem; }
+    /* Make wide tables swipe horizontally inside their own box */
+    .table-container { overflow-x: auto; overflow-y: visible; -webkit-overflow-scrolling: touch; }
+    .table-container table { min-width: 560px; }
+    .staff-overview-table { min-width: 520px; }
+    .calendar-container { -webkit-overflow-scrolling: touch; }
+    .info-grid, .user-profile-info, .user-profile-info { grid-template-columns: 1fr; }
     .notification-dropdown, .search-dropdown, .user-dropdown { width: calc(100vw - 2rem); right: -0.5rem; max-height: 70vh; }
     .user-dropdown { min-width: 0; }
     .modal.active { padding: 1rem 0.5rem; }
