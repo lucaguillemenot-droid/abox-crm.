@@ -472,7 +472,9 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
     .table-container { overflow-x: auto; overflow-y: visible; -webkit-overflow-scrolling: touch; }
     .table-container table { min-width: 560px; }
     .staff-overview-table { min-width: 520px; }
-    .calendar-container { -webkit-overflow-scrolling: touch; }
+    .calendar-container { -webkit-overflow-scrolling: touch; padding-right: 1rem; }
+    /* Wider calendar columns on phone so every date is fully visible when swiping */
+    .calendar-grid { min-width: 960px; grid-template-columns: 54px repeat(7, minmax(124px, 1fr)); }
     .info-grid, .user-profile-info, .user-profile-info { grid-template-columns: 1fr; }
     .notification-dropdown, .search-dropdown, .user-dropdown { width: calc(100vw - 2rem); right: -0.5rem; max-height: 70vh; }
     .user-dropdown { min-width: 0; }
