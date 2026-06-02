@@ -1035,17 +1035,6 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
                 <div class="form-group" style="flex:1;"><label>Fra</label><input type="time" id="vaktStart" class="checklist-datepicker" style="width:100%;"></div>
                 <div class="form-group" style="flex:1;"><label>Til</label><input type="time" id="vaktEnd" class="checklist-datepicker" style="width:100%;"></div>
             </div>
-            <div class="form-group"><label>Hvor</label><select id="vaktLocation">
-                <option value="">— Velg —</option>
-                <option value="Resepsjon">Resepsjon</option>
-                <option value="Gym">Gym</option>
-                <option value="Tennis">Tennis</option>
-                <option value="Badminton">Badminton</option>
-                <option value="Sandvolley">Sandvolley</option>
-                <option value="Fotball">Fotball</option>
-                <option value="Multisport">Multisport</option>
-                <option value="Annet">Annet</option>
-            </select></div>
             <div class="form-group"><label>Notat (valgfritt)</label><input type="text" id="vaktNote" placeholder="..."></div>
             <div class="modal-actions">
                 <button class="btn btn-danger hidden" id="deleteVaktBtn">Slett</button>
@@ -2987,7 +2976,7 @@ function renderTimeliste() {
         const blocks = dayVakter.length ? dayVakter.map(v =>
             '<div class="shift-block" data-vakt-id="' + v.id + '" style="cursor:pointer;">' +
                 '<div class="shift-name">' + v.name + '</div>' +
-                '<div class="shift-time">' + (v.startTime || '') + (v.endTime ? ('\u2013' + v.endTime) : '') + (v.location ? (' \u00b7 ' + v.location) : '') + '</div>' +
+                '<div class="shift-time">' + (v.startTime || '') + (v.endTime ? ('\u2013' + v.endTime) : '') + '</div>' +
             '</div>').join('') : '<div style="color:var(--text-secondary);font-size:0.8rem; padding:0.25rem 0;">Ingen vakter</div>';
         return '<div class="schedule-day">' +
             '<div class="schedule-day-header"' + (isToday ? ' style="color:var(--accent);"' : '') + '>' + day + ' ' + weekDates[i].getDate() + '.</div>' +
@@ -3012,7 +3001,6 @@ function openVaktModal(id, prefillDate) {
         document.getElementById('vaktDate').value = v.date;
         document.getElementById('vaktStart').value = v.startTime || '';
         document.getElementById('vaktEnd').value = v.endTime || '';
-        document.getElementById('vaktLocation').value = v.location || '';
         document.getElementById('vaktNote').value = v.note || '';
         delBtn.classList.remove('hidden');
     } else {
@@ -3021,7 +3009,6 @@ function openVaktModal(id, prefillDate) {
         document.getElementById('vaktDate').value = prefillDate || todayStr();
         document.getElementById('vaktStart').value = '';
         document.getElementById('vaktEnd').value = '';
-        document.getElementById('vaktLocation').value = '';
         document.getElementById('vaktNote').value = '';
         delBtn.classList.add('hidden');
     }
@@ -3034,14 +3021,13 @@ async function saveVakt() {
     const date = document.getElementById('vaktDate').value;
     const startTime = document.getElementById('vaktStart').value;
     const endTime = document.getElementById('vaktEnd').value;
-    const location = document.getElementById('vaktLocation').value;
     const note = document.getElementById('vaktNote').value.trim();
     if (!user || !date || !startTime) { showToast('Velg ansatt, dato og starttid', 'error'); return; }
     const btn = document.getElementById('saveVaktBtn');
     btn.disabled = true;
     try {
-        if (editingVaktId) { await DB.updateVakt(editingVaktId, { userId, name: user.name, date, startTime, endTime, location, note }); showToast('\u2713 Vakt oppdatert'); }
-        else { await DB.addVakt({ userId, name: user.name, date, startTime, endTime, location, note }); showToast('\u2713 Vakt lagt til'); }
+        if (editingVaktId) { await DB.updateVakt(editingVaktId, { userId, name: user.name, date, startTime, endTime, note }); showToast('\u2713 Vakt oppdatert'); }
+        else { await DB.addVakt({ userId, name: user.name, date, startTime, endTime, note }); showToast('\u2713 Vakt lagt til'); }
         document.getElementById('vaktModal').classList.remove('active');
         renderTimeliste();
     } catch (e) { console.error(e); showToast('Kunne ikke lagre vakten. Prov igjen.', 'error'); }
