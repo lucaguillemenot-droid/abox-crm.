@@ -1813,7 +1813,8 @@ function initializeApp() {
     currentWeekStart = new Date(today);
     currentWeekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7));
     currentWeekStart.setHours(0, 0, 0, 0);
-    
+    selectedChecklistDate = todayStr();
+
     renderDashboard();
     renderMembers();
     renderCalendar();
@@ -1823,17 +1824,22 @@ function initializeApp() {
     renderReports();
     renderTimefoering();
     renderNotifications();
-    initializeNavigation();
-    initializeModals();
-    initializeSearch();
-    initializeFilter();
-    initializeCalendarControls();
-    initializeBookingModal();
-    initializeNotificationDropdown();
-    initializeReportActions();
-    initializeMobileMenu();
-    initializeUserDropdown();
-    initializeTimefoering();
+    // Attach event listeners ONCE per page load (not on every login) to avoid
+    // duplicate handlers stacking up when a user logs out and back in.
+    if (!window.__aboxWired) {
+        initializeNavigation();
+        initializeModals();
+        initializeSearch();
+        initializeFilter();
+        initializeCalendarControls();
+        initializeBookingModal();
+        initializeNotificationDropdown();
+        initializeReportActions();
+        initializeMobileMenu();
+        initializeUserDropdown();
+        initializeTimefoering();
+        window.__aboxWired = true;
+    }
 }
 
 function initializeMobileMenu() {
