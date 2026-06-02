@@ -1401,29 +1401,29 @@ const DB = {
     getAllActiveShifts() {
         return this.shifts.filter(s => !s.clockOut);
     },
-    startShift(user) {
-        // Don't allow starting a new shift if one is already active
+    async startShift(user) {
         if (this.getActiveShift(user.id)) return null;
         const now = new Date();
-        const shift = {
-            id: this.shifts.length > 0 ? Math.max(...this.shifts.map(s => s.id)) + 1 : 1,
-            userId: user.id,
-            username: user.username,
-            name: user.name,
-            clockIn: now.toISOString(),
-            clockOut: null,
+        const { data, error } = await sb.from('shifts').insert({
+            user_id: user.id, username: user.username,
+            clock_in: now.toISOString(), clock_out: null,
             date: now.toISOString().split('T')[0]
-        };
-        this.shifts.push(shift);
-        this.save();
-        return shift;
+        }).select().single();
+        if (error) throw error;
+        const mapped = mapShiftRow(data);
+        this.shifts.push(mapped);
+        return mapped;
     },
-    endShift(shiftId) {
+    async endShift(shiftId) {
         const shift = this.shifts.find(s => s.id === shiftId);
         if (!shift || shift.clockOut) return null;
-        shift.clockOut = new Date().toISOString();
-        this.save();
-        return shift;
+        const clockOut = new Date();
+        const durationMin = Math.round((clockOut.getTime() - new Date(shift.clockIn).getTime()) / 60000);
+        const { data, error } = await sb.from('shifts').update({ clock_out: clockOut.toISOString(), duration_minutes: durationMin }).eq('id', shiftId).select().single();
+        if (error) throw error;
+        const idx = this.shifts.findIndex(s => s.id === shiftId);
+        if (idx >= 0) this.shifts[idx] = mapShiftRow(data);
+        return idx >= 0 ? this.shifts[idx] : mapShiftRow(data);
     },
     getUserShifts(userId) {
         return this.shifts.filter(s => s.userId === userId).sort((a, b) => b.clockIn.localeCompare(a.clockIn));
@@ -1433,36 +1433,43 @@ const DB = {
     getCompletion(userId, taskId, date) {
         return this.checklistCompletions.find(c => c.userId === userId && c.taskId === taskId && c.date === date);
     },
-    toggleCompletion(userId, taskId, date) {
+    async toggleCompletion(userId, taskId, date) {
         const existing = this.getCompletion(userId, taskId, date);
         if (existing) {
-            // Toggle off = remove
+            const { error } = await sb.from('checklist_completions').delete().eq('id', existing.id);
+            if (error) throw error;
             this.checklistCompletions = this.checklistCompletions.filter(c => c !== existing);
         } else {
-            this.checklistCompletions.push({
-                id: this.checklistCompletions.length > 0 ? Math.max(...this.checklistCompletions.map(c => c.id)) + 1 : 1,
-                userId: userId,
-                taskId: taskId,
-                date: date,
-                completedAt: new Date().toISOString()
-            });
+            const u = this.users.find(x => x.id === userId);
+            const { data, error } = await sb.from('checklist_completions').insert({ task_id: taskId, user_id: userId, username: u ? u.username : null, date: date }).select().single();
+            if (error) throw error;
+            this.checklistCompletions.push(mapCompletionRow(data));
         }
-        this.save();
     },
     getUserChecklistProgress(userId, date) {
         const total = this.checklistTasks.length;
         const done = this.checklistCompletions.filter(c => c.userId === userId && c.date === date).length;
         return { done: done, total: total };
     },
-    saveChecklistTasks(newTasks) {
-        // Replace tasks with new array (admin edit)
-        this.checklistTasks = newTasks.map((t, i) => ({
-            id: t.id || (Date.now() + i),
-            title: t.title,
-            description: t.description || '',
-            order: i + 1
-        }));
-        this.save();
+    async saveChecklistTasks(newTasks) {
+        const existingIds = this.checklistTasks.map(t => t.id);
+        const keptIds = newTasks.filter(t => t.id).map(t => t.id);
+        const removed = existingIds.filter(id => !keptIds.includes(id));
+        if (removed.length) {
+            const { error } = await sb.from('checklist_tasks').delete().in('id', removed);
+            if (error) throw error;
+        }
+        for (let i = 0; i < newTasks.length; i++) {
+            const t = newTasks[i];
+            if (t.id) {
+                const { error } = await sb.from('checklist_tasks').update({ title: t.title, description: t.description || '', sort_order: i + 1 }).eq('id', t.id);
+                if (error) throw error;
+            } else {
+                const { error } = await sb.from('checklist_tasks').insert({ title: t.title, description: t.description || '', sort_order: i + 1, active: true });
+                if (error) throw error;
+            }
+        }
+        await loadChecklistTasksFromSupabase();
     },
 
     // USERS — Supabase-backed (source of truth = 'users' table)
@@ -1621,6 +1628,71 @@ async function loadBookingsFromSupabase() {
     return DB.bookings;
 }
 
+// ============================================================
+// SUPABASE — SHIFTS + CHECKLISTS helpers
+// ============================================================
+function mapShiftRow(s) {
+    const u = DB.users.find(x => x.id === s.user_id);
+    return {
+        id: s.id,
+        userId: s.user_id,
+        username: s.username,
+        name: u ? u.name : (s.username || 'Ukjent'),
+        clockIn: s.clock_in,
+        clockOut: s.clock_out,
+        date: s.date
+    };
+}
+function mapTaskRow(t) {
+    return { id: t.id, title: t.title, description: t.description || '', order: t.sort_order || 0 };
+}
+function mapCompletionRow(c) {
+    return { id: c.id, taskId: c.task_id, userId: c.user_id, date: c.date, completedAt: c.completed_at };
+}
+
+async function ensureShiftsSeeded() {
+    const { data, error } = await sb.from('shifts').select('id').limit(1);
+    if (error) throw error;
+    if ((!data || data.length === 0) && DB.shifts.length > 0) {
+        const rows = [...DB.shifts].sort((a, b) => a.id - b.id).map(s => {
+            const cin = new Date(s.clockIn), cout = s.clockOut ? new Date(s.clockOut) : null;
+            return { user_id: s.userId, username: s.username, clock_in: s.clockIn, clock_out: s.clockOut || null,
+                     duration_minutes: cout ? Math.round((cout - cin) / 60000) : null, date: s.date };
+        });
+        const { error: insErr } = await sb.from('shifts').insert(rows);
+        if (insErr) throw insErr;
+    }
+}
+async function loadShiftsFromSupabase() {
+    const { data, error } = await sb.from('shifts').select('*').order('id');
+    if (error) throw error;
+    DB.shifts = (data || []).map(mapShiftRow);
+    return DB.shifts;
+}
+async function ensureChecklistSeeded() {
+    const { data, error } = await sb.from('checklist_tasks').select('id').limit(1);
+    if (error) throw error;
+    if ((!data || data.length === 0) && DB.checklistTasks.length > 0) {
+        const rows = [...DB.checklistTasks].sort((a, b) => a.order - b.order).map(t => ({
+            title: t.title, description: t.description || '', sort_order: t.order || 0, active: true
+        }));
+        const { error: insErr } = await sb.from('checklist_tasks').insert(rows);
+        if (insErr) throw insErr;
+    }
+}
+async function loadChecklistTasksFromSupabase() {
+    const { data, error } = await sb.from('checklist_tasks').select('*').order('sort_order');
+    if (error) throw error;
+    DB.checklistTasks = (data || []).map(mapTaskRow);
+    return DB.checklistTasks;
+}
+async function loadChecklistCompletionsFromSupabase() {
+    const { data, error } = await sb.from('checklist_completions').select('*');
+    if (error) throw error;
+    DB.checklistCompletions = (data || []).map(mapCompletionRow);
+    return DB.checklistCompletions;
+}
+
 let currentStep = 1, onboardingData = {}, currentEditId = null, pendingDeleteId = null, pendingAction = null, currentFilter = 'all', currentSearch = '', currentBookingId = null, currentWeekStart = null;
 
 function showToast(message, type) {
@@ -1650,6 +1722,11 @@ async function attemptLogin() {
         await loadMembersFromSupabase();  // pull the live member list from the database
         await ensureBookingsSeeded();     // first run only: upload demo bookings to the database
         await loadBookingsFromSupabase(); // pull the live booking list from the database
+        await ensureShiftsSeeded();       // first run only: upload demo shift history
+        await loadShiftsFromSupabase();   // pull shifts from the database
+        await ensureChecklistSeeded();    // first run only: upload default checklist template
+        await loadChecklistTasksFromSupabase();
+        await loadChecklistCompletionsFromSupabase();
     } catch (e) {
         console.error(e);
         errorMsg.textContent = 'Kunne ikke koble til serveren. Sjekk internett og prøv igjen.';
@@ -2616,9 +2693,9 @@ function renderTimefoering() {
             '</div>';
         }).join('');
         checklistEl.querySelectorAll('.checklist-item').forEach(item => {
-            item.addEventListener('click', () => {
+            item.addEventListener('click', async () => {
                 const taskId = parseInt(item.dataset.taskId);
-                DB.toggleCompletion(currentUser.id, taskId, today);
+                await DB.toggleCompletion(currentUser.id, taskId, today);
                 renderTimefoering(); // re-render
             });
         });
@@ -2657,9 +2734,9 @@ function renderTimefoering() {
         }).join('');
         // Wire up admin actions
         tbody.querySelectorAll('[data-force-clockout]').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', async () => {
                 const shiftId = parseInt(btn.dataset.forceClockout);
-                DB.endShift(shiftId);
+                await DB.endShift(shiftId);
                 renderTimefoering();
                 showToast('Ansatt stemplet ut ✓');
             });
@@ -2711,19 +2788,19 @@ function renderTimefoering() {
     }
 }
 
-function clockIn() {
+async function clockIn() {
     if (!currentUser) return;
-    const shift = DB.startShift(currentUser);
+    const shift = await DB.startShift(currentUser);
     if (!shift) { showToast('Du er allerede stemplet inn', 'warning'); return; }
     showToast('🟢 Velkommen på jobb, ' + currentUser.name.split(' ')[0] + '!');
     renderTimefoering();
 }
 
-function clockOut() {
+async function clockOut() {
     if (!currentUser) return;
     const active = DB.getActiveShift(currentUser.id);
     if (!active) { showToast('Du er ikke stemplet inn', 'warning'); return; }
-    const ended = DB.endShift(active.id);
+    const ended = await DB.endShift(active.id);
     const duration = new Date(ended.clockOut).getTime() - new Date(ended.clockIn).getTime();
     showToast('👋 Takk for innsatsen! Arbeidet ' + formatDurationShort(duration));
     renderTimefoering();
@@ -2766,11 +2843,11 @@ function renderTaskEditor() {
     });
 }
 
-function saveChecklistChanges() {
+async function saveChecklistChanges() {
     // Validate: all tasks need a title
     const cleaned = editingTasks.filter(t => t.title && t.title.trim()).map(t => ({ id: t.id, title: t.title.trim(), description: (t.description || '').trim() }));
     if (cleaned.length === 0) { showToast('Legg til minst én oppgave', 'error'); return; }
-    DB.saveChecklistTasks(cleaned);
+    await DB.saveChecklistTasks(cleaned);
     document.getElementById('editChecklistModal').classList.remove('active');
     renderTimefoering();
     showToast('Sjekkliste oppdatert ✓');
