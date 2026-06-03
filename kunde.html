@@ -14,11 +14,12 @@
 <script>
   const SUPABASE_URL = 'https://smxnkbqcpttsuclwjcrx.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_i1qGufykT0iirmKho99cJA_IN6wK1yR';
-  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  // Separate storage key so member sessions never collide with the staff CRM session
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { storageKey: 'abox-kunde-auth' } });
 </script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-:root{ --bg:#0a0e1a; --bg2:#111827; --bg3:#1a2332; --text:#f3f4f6; --muted:#9ca3af; --accent:#dc2626; --accent2:#b91c1c; --border:#1f2937; --borderL:#374151; --success:#10b981; --danger:#ef4444; }
+:root{ --bg:#0a0e1a; --bg2:#111827; --bg3:#1a2332; --text:#f3f4f6; --muted:#9ca3af; --accent:#dc2626; --accent2:#b91c1c; --border:#1f2937; --borderL:#374151; --success:#10b981; --warn:#f59e0b; --danger:#ef4444; }
 html,body{ height:100%; }
 body{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); line-height:1.55; -webkit-font-smoothing:antialiased; }
 .app{ max-width:620px; margin:0 auto; min-height:100dvh; display:flex; flex-direction:column; }
@@ -40,7 +41,6 @@ body{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 .hero{ border-radius:20px; padding:2rem 1.5rem; background:radial-gradient(ellipse at top left,#2a1416 0%,#141a28 70%); border:1px solid var(--borderL); margin-bottom:1.5rem; position:relative; overflow:hidden; }
 .hero h1{ font-size:1.9rem; font-weight:800; letter-spacing:-.02em; line-height:1.15; margin-bottom:.5rem; }
 .hero p{ color:var(--muted); margin-bottom:1.25rem; }
-.hero .cta{ display:inline-flex; }
 .btn{ display:inline-flex; align-items:center; justify-content:center; gap:.4rem; padding:.85rem 1.4rem; background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff; border:none; border-radius:11px; font-size:.95rem; font-weight:700; cursor:pointer; transition:.2s; box-shadow:0 6px 20px rgba(220,38,38,.3); font-family:inherit; }
 .btn:hover{ transform:translateY(-1px); box-shadow:0 8px 26px rgba(220,38,38,.42); }
 .btn:disabled{ opacity:.6; transform:none; cursor:default; }
@@ -62,7 +62,7 @@ body{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
 .news-item p{ color:var(--muted); font-size:.9rem; }
 .empty{ color:var(--muted); font-size:.9rem; text-align:center; padding:1.5rem; }
 
-/* signup form */
+/* forms */
 .form-group{ margin-bottom:1rem; }
 label{ display:block; margin-bottom:.4rem; font-size:.82rem; font-weight:500; color:var(--muted); }
 input,select{ width:100%; padding:.8rem .9rem; background:var(--bg3); border:1px solid var(--borderL); border-radius:10px; color:var(--text); font-size:.95rem; font-family:inherit; transition:.2s; }
@@ -89,6 +89,26 @@ input:focus,select:focus{ outline:none; border-color:var(--accent); box-shadow:0
 .kv .val{ font-weight:600; }
 .kv a{ color:var(--text); text-decoration:none; }
 
+/* min side */
+.profile-head{ display:flex; align-items:center; gap:.9rem; margin-bottom:1.1rem; }
+.avatar{ width:56px; height:56px; border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--accent2)); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1.25rem; color:#fff; flex-shrink:0; }
+.profile-head h2{ font-size:1.25rem; font-weight:800; line-height:1.2; }
+.profile-head .sub{ color:var(--muted); font-size:.84rem; }
+.badge{ display:inline-block; padding:.18rem .6rem; border-radius:999px; font-size:.72rem; font-weight:700; }
+.badge.aktiv{ background:rgba(16,185,129,.15); color:var(--success); }
+.badge.ny{ background:rgba(245,158,11,.15); color:var(--warn); }
+.badge.annet{ background:rgba(156,163,175,.15); color:var(--muted); }
+.stat-row{ display:grid; grid-template-columns:1fr 1fr; gap:.6rem; margin-bottom:.85rem; }
+.stat{ background:var(--bg2); border:1px solid var(--border); border-radius:13px; padding:1rem; text-align:center; }
+.stat .num{ font-size:1.55rem; font-weight:800; color:var(--accent); }
+.stat .lab{ font-size:.74rem; color:var(--muted); }
+.pay-item{ display:flex; justify-content:space-between; align-items:center; padding:.65rem 0; border-bottom:1px solid var(--border); }
+.pay-item:last-child{ border-bottom:none; }
+.pay-item .desc{ font-size:.9rem; font-weight:600; }
+.pay-item .dt{ font-size:.74rem; color:var(--muted); }
+.pay-item .amt{ font-weight:800; white-space:nowrap; }
+.linkish{ color:var(--accent); font-weight:600; cursor:pointer; text-align:center; display:block; margin-top:.85rem; font-size:.88rem; }
+
 /* bottom nav */
 .nav{ position:fixed; bottom:0; left:0; right:0; z-index:50; display:flex; max-width:620px; margin:0 auto; background:rgba(17,24,39,.92); backdrop-filter:blur(12px); border-top:1px solid var(--border); padding-bottom:env(safe-area-inset-bottom); }
 .nav-btn{ flex:1; background:none; border:none; color:var(--muted); padding:.7rem .25rem; cursor:pointer; font-family:inherit; display:flex; flex-direction:column; align-items:center; gap:.15rem; transition:.15s; }
@@ -111,7 +131,7 @@ input:focus,select:focus{ outline:none; border-color:var(--accent); box-shadow:0
             <div class="hero">
                 <h1>Tren der du vil,<br>når du vil.</h1>
                 <p>6 000 m² med gym, baner og multisport midt i Greverud. Bli medlem på under ett minutt.</p>
-                <button class="btn cta" onclick="go('signup')">Bli medlem →</button>
+                <button class="btn" onclick="go('signup')">Bli medlem →</button>
             </div>
 
             <div class="section-title">Tilbudet vårt</div>
@@ -119,4 +139,289 @@ input:focus,select:focus{ outline:none; border-color:var(--accent); box-shadow:0
                 <div class="facil"><div class="ic">🏋️</div><div class="nm">Gym</div></div>
                 <div class="facil"><div class="ic">🎾</div><div class="nm">Tennis</div></div>
                 <div class="facil"><div class="ic">🏸</div><div class="nm">Badminton</div></div>
-                <div class="facil"><div class="i
+                <div class="facil"><div class="ic">🏐</div><div class="nm">Sandvolley</div></div>
+                <div class="facil"><div class="ic">⚽</div><div class="nm">Fotball</div></div>
+                <div class="facil"><div class="ic">🤸</div><div class="nm">Multisport</div></div>
+            </div>
+
+            <div class="section-title">Siste nytt</div>
+            <div id="newsList"><div class="empty">Laster nyheter…</div></div>
+        </div>
+
+        <!-- BLI MEDLEM -->
+        <div id="viewSignup" class="view">
+            <div id="signupForm">
+                <h1 style="font-size:1.5rem;font-weight:800;margin-bottom:.25rem;">Bli medlem</h1>
+                <p style="color:var(--muted);margin-bottom:1.25rem;">Fyll ut, så er du i gang. Du får samtidig din egen innlogging til Min side.</p>
+                <div id="errorMsg" class="msg error hidden"></div>
+                <div class="form-group"><label>Fullt navn</label><input type="text" id="name" placeholder="Ola Nordmann" autocomplete="name"></div>
+                <div class="form-group"><label>E-post</label><input type="email" id="email" placeholder="ola@epost.no" autocomplete="email"></div>
+                <div class="form-group"><label>Telefon</label><input type="tel" id="phone" placeholder="123 45 678" autocomplete="tel"></div>
+                <div class="form-group"><label>Velg passord (minst 8 tegn)</label><input type="password" id="password" placeholder="••••••••" autocomplete="new-password"></div>
+                <div class="form-group"><label>Gjenta passord</label><input type="password" id="password2" placeholder="••••••••" autocomplete="new-password"></div>
+                <label>Velg medlemskap</label>
+                <div class="plans" id="plans"></div>
+                <button type="button" class="btn btn-block" id="submitBtn">Bli medlem</button>
+                <span class="linkish" onclick="go('login')">Allerede medlem? Logg inn</span>
+                <p style="text-align:center;color:var(--muted);font-size:.78rem;margin-top:1rem;">Ved innmelding godtar du Abox sine vilkår og personvernerklæring.</p>
+            </div>
+            <div id="signupDone" class="hidden">
+                <div class="card success">
+                    <div class="check">✓</div>
+                    <h2>Velkommen til Abox! 🎉</h2>
+                    <p id="signupDoneText">Innmeldingen er mottatt og kontoen din er klar. Du finner medlemskapet ditt under Min side.</p>
+                    <button class="btn btn-block" style="margin-top:1.25rem;" onclick="goMinSide()">Gå til Min side</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- KONTAKT -->
+        <div id="viewContact" class="view">
+            <h1 style="font-size:1.5rem;font-weight:800;margin-bottom:1.1rem;">Kontakt &amp; åpningstider</h1>
+            <div class="card">
+                <div class="kv"><div class="ic">🕑</div><div><div class="lab">Åpningstider</div><div class="val">Man–fre 06–23 · Lør–søn 08–22</div></div></div>
+                <div class="kv"><div class="ic">📍</div><div><div class="lab">Adresse</div><div class="val">[Gateadresse], Greverud, Nordre Follo</div></div></div>
+                <div class="kv"><div class="ic">📞</div><div><div class="lab">Telefon</div><a class="val" href="tel:[telefon]">[telefonnummer]</a></div></div>
+                <div class="kv"><div class="ic">✉️</div><div><div class="lab">E-post</div><a class="val" href="mailto:[e-post]">[kontakt-e-post]</a></div></div>
+            </div>
+            <div class="section-title">Fasiliteter</div>
+            <div class="card">
+                <p style="color:var(--muted);font-size:.92rem;">Fullt utstyrt styrke- og kondisjonsavdeling, tennisbaner, badmintonbaner, sandvolleyball, fotball og multisporthall – alt under ett tak på 6 000 m².</p>
+            </div>
+        </div>
+
+        <!-- LOGG INN -->
+        <div id="viewLogin" class="view">
+            <h1 style="font-size:1.5rem;font-weight:800;margin-bottom:.25rem;">Logg inn</h1>
+            <p style="color:var(--muted);margin-bottom:1.25rem;">Logg inn for å se medlemskapet ditt, besøk og betalinger.</p>
+            <div id="loginError" class="msg error hidden"></div>
+            <div class="form-group"><label>E-post</label><input type="email" id="loginEmail" placeholder="ola@epost.no" autocomplete="email"></div>
+            <div class="form-group"><label>Passord</label><input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password"></div>
+            <button type="button" class="btn btn-block" id="loginSubmit">Logg inn</button>
+            <span class="linkish" onclick="go('signup')">Ikke medlem ennå? Bli medlem</span>
+        </div>
+
+        <!-- MIN SIDE -->
+        <div id="viewMinside" class="view">
+            <div id="minsideContent"><div class="empty">Laster…</div></div>
+        </div>
+    </div>
+
+    <nav class="nav">
+        <button class="nav-btn active" data-view="home" onclick="go('home')"><span class="ic">🏠</span><span class="lb">Hjem</span></button>
+        <button class="nav-btn" data-view="signup" onclick="go('signup')"><span class="ic">➕</span><span class="lb">Bli medlem</span></button>
+        <button class="nav-btn" data-view="contact" onclick="go('contact')"><span class="ic">📞</span><span class="lb">Kontakt</span></button>
+        <button class="nav-btn" data-view="minside" onclick="goMinSide()"><span class="ic">👤</span><span class="lb">Min side</span></button>
+    </nav>
+</div>
+
+<script>
+let me = null; // logged-in member's row
+
+function esc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function go(view){
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById('view' + view.charAt(0).toUpperCase() + view.slice(1)).classList.add('active');
+    const navView = (view === 'login') ? 'minside' : view;
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === navView));
+    window.scrollTo(0,0);
+}
+function goMinSide(){
+    if (me){ go('minside'); renderMinSide(); }
+    else { go('login'); }
+}
+document.getElementById('loginBtn').addEventListener('click', goMinSide);
+function updateAuthUI(){
+    document.getElementById('loginBtn').textContent = me ? 'Min side' : 'Logg inn';
+}
+
+// ---- date helpers ----
+const MONTHS = ['jan.','feb.','mars','apr.','mai','juni','juli','aug.','sep.','okt.','nov.','des.'];
+function fmtDate(d){
+    if (!d) return '';
+    const dt = new Date(d + 'T12:00:00');
+    if (isNaN(dt)) return d;
+    return dt.getDate() + '. ' + MONTHS[dt.getMonth()] + ' ' + dt.getFullYear();
+}
+function todayYmd(){
+    const t = new Date();
+    return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+}
+
+// ---- News ----
+async function loadNews(){
+    const el = document.getElementById('newsList');
+    try{
+        const { data, error } = await sb.from('news').select('*').eq('published', true).order('date', { ascending:false }).limit(10);
+        if (error) throw error;
+        if (!data || !data.length){ el.innerHTML = '<div class="empty">Ingen nyheter ennå.</div>'; return; }
+        el.innerHTML = data.map(n =>
+            '<div class="card news-item">' + (n.date ? '<div class="date">' + fmtDate(n.date) + '</div>' : '') +
+            '<h3>' + esc(n.title) + '</h3>' + (n.body ? '<p>' + esc(n.body) + '</p>' : '') + '</div>'
+        ).join('');
+    } catch(e){ console.error(e); el.innerHTML = '<div class="empty">Kunne ikke laste nyheter.</div>'; }
+}
+
+// ---- Session ----
+async function loadMe(){
+    try{
+        const { data, error } = await sb.from('members').select('*');
+        if (error) throw error;
+        me = (data && data[0]) || null;
+    } catch(e){ console.error(e); me = null; }
+    updateAuthUI();
+}
+(async () => {
+    loadNews();
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) await loadMe();
+})();
+
+// ---- Login ----
+function showLoginError(t){ const e=document.getElementById('loginError'); e.textContent=t; e.classList.remove('hidden'); }
+document.getElementById('loginSubmit').addEventListener('click', async () => {
+    document.getElementById('loginError').classList.add('hidden');
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    if (!email || !password){ showLoginError('Fyll inn e-post og passord'); return; }
+    const btn = document.getElementById('loginSubmit'); btn.disabled = true; btn.textContent = 'Logger inn…';
+    try{
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error){ showLoginError('Feil e-post eller passord'); return; }
+        await loadMe();
+        if (!me){
+            await sb.auth.signOut();
+            me = null; updateAuthUI();
+            showLoginError('Fant ingen medlemsprofil for denne kontoen. Ta kontakt med senteret.');
+            return;
+        }
+        document.getElementById('loginPassword').value = '';
+        go('minside'); renderMinSide();
+    } catch(e){ console.error(e); showLoginError('Noe gikk galt. Prøv igjen.'); }
+    finally{ btn.disabled = false; btn.textContent = 'Logg inn'; }
+});
+
+async function doLogout(){
+    try{ await sb.auth.signOut(); } catch(e){ console.error(e); }
+    me = null; updateAuthUI(); go('home');
+}
+
+// ---- Min side ----
+function statusBadge(s){
+    const st = (s || '').toLowerCase();
+    if (st === 'aktiv') return '<span class="badge aktiv">Aktiv</span>';
+    if (st === 'ny') return '<span class="badge ny">Venter på godkjenning</span>';
+    return '<span class="badge annet">' + esc(s || 'Ukjent') + '</span>';
+}
+async function renderMinSide(){
+    const el = document.getElementById('minsideContent');
+    if (!me){ el.innerHTML = '<div class="empty">Du er ikke logget inn.</div>'; return; }
+    el.innerHTML = '<div class="empty">Laster…</div>';
+
+    let visits = 0, payments = [];
+    try{
+        const { count } = await sb.from('activity').select('*', { count:'exact', head:true }).eq('type','Innsjekk');
+        visits = count || 0;
+    } catch(e){ console.error(e); }
+    try{
+        const { data } = await sb.from('payments').select('*').order('date', { ascending:false }).limit(5);
+        payments = data || [];
+    } catch(e){ console.error(e); }
+
+    const initials = (me.name || '?').split(/\s+/).map(p => p[0]).slice(0,2).join('').toUpperCase();
+    const sinceY = me.joined ? fmtDate(me.joined) : '–';
+
+    let payHtml;
+    if (payments.length){
+        payHtml = payments.map(p =>
+            '<div class="pay-item"><div><div class="desc">' + esc(p.description || 'Betaling') + '</div><div class="dt">' + fmtDate(p.date) + '</div></div><div class="amt">' + (p.amount != null ? esc(p.amount) + ' kr' : '') + '</div></div>'
+        ).join('');
+    } else {
+        payHtml = '<div class="empty" style="padding:.75rem;">Ingen betalinger registrert ennå.</div>';
+    }
+
+    el.innerHTML =
+        '<div class="profile-head"><div class="avatar">' + esc(initials) + '</div><div><h2>' + esc(me.name) + '</h2><div class="sub">' + esc(me.email || '') + '</div></div></div>' +
+        '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;flex-wrap:wrap;"><div><div style="font-size:.74rem;color:var(--muted);">Medlemskap</div><div style="font-weight:700;">' + esc(me.membership || '–') + '</div></div>' + statusBadge(me.status) + '</div>' +
+        '<div style="font-size:.8rem;color:var(--muted);margin-top:.6rem;">Medlem siden ' + sinceY + '</div></div>' +
+        ((me.status || '').toLowerCase() === 'ny' ? '<div class="card" style="border-color:var(--warn);"><p style="font-size:.88rem;color:var(--muted);">Innmeldingen din behandles av senteret. Du får full tilgang så snart medlemskapet er aktivert.</p></div>' : '') +
+        '<div class="stat-row"><div class="stat"><div class="num">' + visits + '</div><div class="lab">Besøk totalt</div></div><div class="stat"><div class="num">' + payments.length + '</div><div class="lab">Siste betalinger</div></div></div>' +
+        '<div class="section-title" style="margin-top:1rem;">Siste betalinger</div><div class="card">' + payHtml + '</div>' +
+        '<div class="card" style="text-align:center;"><div style="font-size:1.6rem;">🎾</div><div style="font-weight:700;margin:.25rem 0;">Baneleie-booking</div><p style="color:var(--muted);font-size:.88rem;">Snart kan du booke tennis-, badminton- og fotballbaner rett her i appen.</p></div>' +
+        '<button class="btn btn-ghost btn-block" style="margin-top:.5rem;" onclick="doLogout()">Logg ut</button>';
+}
+
+// ---- Signup ----
+const PLANS = [
+    { id:'Studio ordinær', name:'Studio ordinær', desc:'12 mnd binding', price:'299 kr/mnd' },
+    { id:'Studio ordinær (uten binding)', name:'Studio ordinær – uten binding', desc:'Si opp når du vil', price:'399 kr/mnd' },
+    { id:'Studio+ formiddag', name:'Studio+ formiddag', desc:'Tilgang før kl. 16', price:'499 kr/mnd' },
+    { id:'Studio+', name:'Studio+', desc:'Fri tilgang + gratis baneleie', price:'599 kr/mnd' },
+];
+let selectedPlan = null;
+const plansEl = document.getElementById('plans');
+plansEl.innerHTML = PLANS.map(p => '<div class="plan" data-plan="'+esc(p.id)+'"><div><div class="name">'+p.name+'</div><div class="desc">'+p.desc+'</div></div><div class="price">'+p.price+'</div></div>').join('');
+plansEl.querySelectorAll('.plan').forEach(el => el.addEventListener('click', () => {
+    plansEl.querySelectorAll('.plan').forEach(x => x.classList.remove('active'));
+    el.classList.add('active'); selectedPlan = el.dataset.plan;
+}));
+function showError(t){ const e=document.getElementById('errorMsg'); e.textContent=t; e.classList.remove('hidden'); window.scrollTo(0,0); }
+
+document.getElementById('submitBtn').addEventListener('click', async () => {
+    document.getElementById('errorMsg').classList.add('hidden');
+    const name = document.getElementById('name').value.trim();
+    const email = document.getElementById('email').value.trim().toLowerCase();
+    const phone = document.getElementById('phone').value.trim();
+    const pw = document.getElementById('password').value;
+    const pw2 = document.getElementById('password2').value;
+    if (!name){ showError('Skriv inn navnet ditt'); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ showError('Skriv inn en gyldig e-post'); return; }
+    if (!phone){ showError('Skriv inn telefonnummeret ditt'); return; }
+    if (pw.length < 8){ showError('Passordet må være minst 8 tegn'); return; }
+    if (pw !== pw2){ showError('Passordene er ikke like'); return; }
+    if (!selectedPlan){ showError('Velg et medlemskap'); return; }
+    const btn = document.getElementById('submitBtn'); btn.disabled = true; btn.textContent = 'Oppretter…';
+    try{
+        const { data: su, error: suErr } = await sb.auth.signUp({ email, password: pw });
+        if (suErr){
+            const m = (suErr.message || '').toLowerCase();
+            if (m.includes('already registered') || m.includes('already exists')){
+                showError('E-posten er allerede registrert. Logg inn i stedet.');
+            } else {
+                showError('Kunne ikke opprette konto. Prøv igjen.');
+            }
+            return;
+        }
+        const memberRow = { name, email, phone, membership: selectedPlan, status:'Ny', joined: todayYmd() };
+        if (su && su.session){
+            // logged in: create own member row unless one already exists for this e-mail
+            const { data: existing } = await sb.from('members').select('id').limit(1);
+            if (!existing || !existing.length){
+                const { error: insErr } = await sb.from('members').insert(memberRow);
+                if (insErr) throw insErr;
+            }
+            await loadMe();
+            document.getElementById('signupDoneText').textContent = 'Innmeldingen er mottatt og kontoen din er klar. Du finner medlemskapet ditt under Min side.';
+        } else {
+            // fallback (e.g. e-mail confirmation enabled): anonymous signup path
+            const { error: insErr } = await sb.from('members').insert(memberRow);
+            if (insErr) throw insErr;
+            document.getElementById('signupDoneText').textContent = 'Innmeldingen er mottatt! Bekreft e-posten din, så kan du logge inn på Min side.';
+        }
+        document.getElementById('signupForm').classList.add('hidden');
+        document.getElementById('signupDone').classList.remove('hidden');
+        window.scrollTo(0,0);
+    } catch(e){
+        console.error(e);
+        showError('Noe gikk galt. Prøv igjen, eller ta kontakt med senteret.');
+        btn.disabled = false; btn.textContent = 'Bli medlem';
+    } finally {
+        if (!document.getElementById('signupForm').classList.contains('hidden')){
+            btn.disabled = false; btn.textContent = 'Bli medlem';
+        }
+    }
+});
+</script>
+</body>
+</html>
