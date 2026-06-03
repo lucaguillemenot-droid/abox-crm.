@@ -12,6 +12,7 @@
   const SUPABASE_URL = 'https://smxnkbqcpttsuclwjcrx.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_i1qGufykT0iirmKho99cJA_IN6wK1yR';
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const sbSignup = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
   window.sb = sb;
 </script>
 <style>
@@ -1240,9 +1241,10 @@ function applyRolePermissions() {
     }
 }
 
-function handleLogout() {
+async function handleLogout() {
     // Stop live timer if running
     if (liveTimerInterval) { clearInterval(liveTimerInterval); liveTimerInterval = null; }
+    try { await sb.auth.signOut(); } catch (e) { console.error(e); }
     currentUser = null;
     document.getElementById('userDropdown').classList.add('hidden');
     document.getElementById('appContainer').classList.add('hidden');
@@ -1968,80 +1970,82 @@ function showToast(message, type) {
     setTimeout(() => toast.remove(), 3000);
 }
 
+async function loadAllData() {
+    DB.load();
+    await ensureUsersSeeded();
+    await loadUsersFromSupabase();
+    const { data: memCheck, error: memErr } = await sb.from('members').select('id').limit(1);
+    if (memErr) throw memErr;
+    const freshDb = !memCheck || memCheck.length === 0;
+    if (freshDb) {
+        await ensureMembersSeeded();
+        await ensureBookingsSeeded();
+        await ensureShiftsSeeded();
+        await ensurePaymentsSeeded();
+        await ensureActivitySeeded();
+        await ensureStaffSeeded();
+        await ensureAutomationsSeeded();
+    }
+    await ensureChecklistSeeded();
+    await loadMembersFromSupabase();
+    await loadBookingsFromSupabase();
+    await loadShiftsFromSupabase();
+    await loadChecklistTasksFromSupabase();
+    await loadChecklistCompletionsFromSupabase();
+    await loadPaymentsFromSupabase();
+    await loadActivityFromSupabase();
+    await loadStaffFromSupabase();
+    await loadAutomationsFromSupabase();
+    await loadVakterFromSupabase();
+}
+
+async function enterAppAs(username) {
+    await loadAllData();
+    const userData = DB.users.find(u => u.username.toLowerCase() === username);
+    if (!userData) { const e = new Error('no-profile'); e.code = 'no-profile'; throw e; }
+    currentUser = {
+        id: userData.id,
+        username: userData.username,
+        name: userData.name,
+        role: userData.role,
+        displayRole: userData.displayRole || (userData.role === 'admin' ? 'Administrator' : 'Ansatt'),
+        access: userData.access || (userData.role === 'admin' ? 'Full' : 'Begrenset'),
+        loginTime: new Date().toISOString()
+    };
+    document.getElementById('loginError').classList.add('hidden');
+    document.getElementById('loginPage').classList.add('hidden');
+    document.getElementById('appContainer').classList.remove('hidden');
+    generateRealNotifications();
+    initializeApp();
+    applyRolePermissions();
+}
+
 async function attemptLogin() {
     const username = document.getElementById('username').value.trim().toLowerCase();
     const password = document.getElementById('password').value.trim();
     const errorMsg = document.getElementById('loginError');
     const loginBtn = document.getElementById('loginButton');
-
     loginBtn.disabled = true;
     const origLabel = loginBtn.textContent;
     loginBtn.textContent = 'Logger inn...';
 
-    try {
-        DB.load();                     // local demo seed (used only to populate a blank database)
-        await ensureUsersSeeded();       // login accounts (admin/ivo/jacob) — always ensured
-        await loadUsersFromSupabase();
-
-        // Demo data is seeded ONLY when the database is blank (no members yet).
-        // Once real members exist, we never re-seed demo content into any table.
-        const { data: memCheck, error: memErr } = await sb.from('members').select('id').limit(1);
-        if (memErr) throw memErr;
-        const freshDb = !memCheck || memCheck.length === 0;
-        if (freshDb) {
-            await ensureMembersSeeded();
-            await ensureBookingsSeeded();
-            await ensureShiftsSeeded();
-            await ensurePaymentsSeeded();
-            await ensureActivitySeeded();
-            await ensureStaffSeeded();
-            await ensureAutomationsSeeded();
-        }
-        await ensureChecklistSeeded();   // default checklist template — useful even in real use
-
-        await loadMembersFromSupabase();
-        await loadBookingsFromSupabase();
-        await loadShiftsFromSupabase();
-        await loadChecklistTasksFromSupabase();
-        await loadChecklistCompletionsFromSupabase();
-        await loadPaymentsFromSupabase();
-        await loadActivityFromSupabase();
-        await loadStaffFromSupabase();
-        await loadAutomationsFromSupabase();
-        await loadVakterFromSupabase();
-    } catch (e) {
-        console.error(e);
-        errorMsg.textContent = 'Kunne ikke koble til serveren. Sjekk internett og prøv igjen.';
+    const email = username + '@abox.no';
+    const { error: authErr } = await sb.auth.signInWithPassword({ email, password });
+    if (authErr) {
+        errorMsg.textContent = 'Feil brukernavn eller passord';
         errorMsg.classList.remove('hidden');
         loginBtn.disabled = false;
         loginBtn.textContent = origLabel;
         return;
     }
-
-    const userData = DB.users.find(u => u.username.toLowerCase() === username && u.password === password);
-
-    if (userData) {
-        currentUser = {
-            id: userData.id,
-            username: userData.username,
-            name: userData.name,
-            role: userData.role,
-            displayRole: userData.displayRole || (userData.role === 'admin' ? 'Administrator' : 'Ansatt'),
-            access: userData.access || (userData.role === 'admin' ? 'Full' : 'Begrenset'),
-            loginTime: new Date().toISOString()
-        };
-        errorMsg.classList.add('hidden');
-        document.getElementById('loginPage').classList.add('hidden');
-        document.getElementById('appContainer').classList.remove('hidden');
-        try { 
-            generateRealNotifications(); 
-            initializeApp(); 
-            applyRolePermissions();
-            showToast('Velkommen ' + currentUser.name + '!'); 
-        } catch (err) { console.error(err); }
-    } else {
-        errorMsg.textContent = 'Feil brukernavn eller passord';
+    try {
+        await enterAppAs(username);
+        showToast('Velkommen ' + currentUser.name + '!');
+    } catch (e) {
+        console.error(e);
+        errorMsg.textContent = (e && e.code === 'no-profile') ? 'Kontoen mangler en profil. Kontakt admin.' : 'Kunne ikke laste data. Prøv igjen.';
         errorMsg.classList.remove('hidden');
+        try { await sb.auth.signOut(); } catch (_) {}
     }
     loginBtn.disabled = false;
     loginBtn.textContent = origLabel;
@@ -2050,6 +2054,17 @@ async function attemptLogin() {
 document.getElementById('loginButton').addEventListener('click', attemptLogin);
 document.getElementById('username').addEventListener('keypress', e => { if (e.key === 'Enter') attemptLogin(); });
 document.getElementById('password').addEventListener('keypress', e => { if (e.key === 'Enter') attemptLogin(); });
+
+// Auto-login if a Supabase Auth session already exists (keeps you logged in across refreshes)
+(async function checkExistingSession() {
+    try {
+        const { data: { session } } = await sb.auth.getSession();
+        if (session && session.user && session.user.email) {
+            const username = session.user.email.split('@')[0].toLowerCase();
+            await enterAppAs(username);
+        }
+    } catch (e) { console.error('session restore failed', e); try { await sb.auth.signOut(); } catch (_) {} }
+})();
 
 function initializeApp() {
     const today = new Date();
@@ -3283,6 +3298,8 @@ function openAddStaffUserModal(userId) {
         document.getElementById('newStaffName').value = user.name;
         document.getElementById('newStaffUsername').value = user.username;
         document.getElementById('newStaffPassword').value = user.password;
+        document.getElementById('newStaffUsername').disabled = true;
+        document.getElementById('newStaffPassword').disabled = true;
         document.getElementById('newStaffRole').value = user.role;
         document.getElementById('saveNewStaffUserBtn').textContent = 'Lagre endringer';
         // Show delete button only if not main admin
@@ -3294,6 +3311,8 @@ function openAddStaffUserModal(userId) {
         document.getElementById('newStaffName').value = '';
         document.getElementById('newStaffUsername').value = '';
         document.getElementById('newStaffPassword').value = '';
+        document.getElementById('newStaffUsername').disabled = false;
+        document.getElementById('newStaffPassword').disabled = false;
         document.getElementById('newStaffRole').value = 'staff';
         document.getElementById('saveNewStaffUserBtn').textContent = 'Opprett konto';
         document.getElementById('deleteStaffUserBtn').classList.add('hidden');
@@ -3321,9 +3340,11 @@ async function saveNewStaffUser() {
     saveBtn.textContent = 'Lagrer...';
     try {
         if (editingUserId) {
-            await DB.updateUser(editingUserId, { name: name, username: username, password: password, role: role });
+            await DB.updateUser(editingUserId, { name: name, role: role });
             showToast('✓ Konto oppdatert');
         } else {
+            const { error: authErr } = await sbSignup.auth.signUp({ email: username + '@abox.no', password: password });
+            if (authErr) throw authErr;
             await DB.addUser({ name: name, username: username, password: password, role: role });
             showToast('✓ Konto opprettet. ' + name + ' kan logge inn med brukernavn "' + username + '"');
         }
@@ -3331,8 +3352,8 @@ async function saveNewStaffUser() {
         renderTimefoering();
     } catch (e) {
         console.error(e);
-        const msg = (e && e.code === '23505') ? 'Brukernavnet "' + username + '" er opptatt' : 'Kunne ikke lagre kontoen. Prøv igjen.';
-        showToast(msg, 'error');
+        const dup = (e && (e.code === '23505' || /already|registered|exist/i.test(e.message || '')));
+        showToast(dup ? ('Brukernavnet "' + username + '" er opptatt') : 'Kunne ikke lagre kontoen. Prøv igjen.', 'error');
     } finally {
         saveBtn.disabled = false;
         saveBtn.textContent = origLabel;
