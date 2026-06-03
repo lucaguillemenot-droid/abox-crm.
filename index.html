@@ -624,6 +624,9 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
                     <div class="user-dropdown-item" id="userProfileBtn">
                         <span class="dropdown-icon">👤</span> Min profil
                     </div>
+                    <div class="user-dropdown-item" id="changePasswordBtn">
+                        <span class="dropdown-icon">🔑</span> Bytt passord
+                    </div>
                     <div class="user-dropdown-divider"></div>
                     <div class="user-dropdown-item danger" id="logoutBtn">
                         <span class="dropdown-icon">🚪</span> Logg ut
@@ -815,6 +818,23 @@ tbody tr.clickable:hover { background: var(--bg-tertiary); }
 </div>
 
 <!-- USER PROFILE MODAL (NEW - shows current logged-in user info) -->
+<div id="changePasswordModal" class="modal">
+    <div class="modal-content small">
+        <div class="modal-header">
+            <h2>Bytt passord</h2>
+            <button class="modal-close" id="closeChangePwBtn">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group"><label>Nytt passord</label><input type="password" id="newPw1" placeholder="Minst 8 tegn" autocomplete="new-password"></div>
+            <div class="form-group"><label>Bekreft nytt passord</label><input type="password" id="newPw2" placeholder="Gjenta passord" autocomplete="new-password"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="cancelChangePwBtn">Avbryt</button>
+                <button class="btn btn-accent" id="saveChangePwBtn">Lagre nytt passord</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div id="userProfileModal" class="modal">
     <div class="modal-content small">
         <div class="modal-header">
@@ -1252,6 +1272,22 @@ async function handleLogout() {
     document.getElementById('password').value = '';
     showToast('Du er logget ut');
 }
+
+async function changePassword() {
+    const p1 = document.getElementById('newPw1').value;
+    const p2 = document.getElementById('newPw2').value;
+    if (p1.length < 8) { showToast('Passord må være minst 8 tegn', 'error'); return; }
+    if (p1 !== p2) { showToast('Passordene er ikke like', 'error'); return; }
+    const btn = document.getElementById('saveChangePwBtn');
+    btn.disabled = true;
+    try {
+        const { error } = await sb.auth.updateUser({ password: p1 });
+        if (error) throw error;
+        document.getElementById('changePasswordModal').classList.remove('active');
+        showToast('✓ Passord oppdatert');
+    } catch (e) { console.error(e); showToast('Kunne ikke endre passord. Prøv igjen.', 'error'); }
+    finally { btn.disabled = false; }
+}
 // ============================================================
 
 const DB = {
@@ -1661,7 +1697,7 @@ const DB = {
     async addUser(user) {
         const { data, error } = await sb.from('users').insert({
             username: user.username,
-            password: user.password,
+            password: 'managed_by_supabase_auth',
             name: user.name,
             role: user.role
         }).select().single();
@@ -2144,6 +2180,18 @@ function initializeUserDropdown() {
         userDropdown.classList.add('hidden');
         openUserProfileModal();
     });
+
+    // "Bytt passord" opens the change-password modal
+    document.getElementById('changePasswordBtn').addEventListener('click', () => {
+        userDropdown.classList.add('hidden');
+        document.getElementById('newPw1').value = '';
+        document.getElementById('newPw2').value = '';
+        document.getElementById('changePasswordModal').classList.add('active');
+    });
+    document.getElementById('closeChangePwBtn').addEventListener('click', () => { document.getElementById('changePasswordModal').classList.remove('active'); });
+    document.getElementById('cancelChangePwBtn').addEventListener('click', () => { document.getElementById('changePasswordModal').classList.remove('active'); });
+    document.getElementById('saveChangePwBtn').addEventListener('click', changePassword);
+    document.getElementById('changePasswordModal').addEventListener('click', e => { if (e.target.id === 'changePasswordModal') e.target.classList.remove('active'); });
     
     // Logout button (top-right dropdown)
     document.getElementById('logoutBtn').addEventListener('click', () => {
