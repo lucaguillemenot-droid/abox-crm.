@@ -1775,11 +1775,11 @@ async function loadUsersFromSupabase() {
 function mapMemberRow(m) {
     return {
         id: m.id,
-        name: m.name,
-        email: m.email,
-        phone: m.phone,
-        membership: m.membership,
-        status: m.status,
+        name: m.name || '',
+        email: m.email || '',
+        phone: m.phone || '',
+        membership: m.membership || '',
+        status: m.status || '',
         joined: m.joined,
         avatar: m.avatar || '#dc2626',
         lastVisit: m.last_visit || null,
@@ -2379,8 +2379,8 @@ function initializeSearch() {
         if (!document.getElementById('membersPage').classList.contains('hidden')) renderMembers();
         if (query.length === 0) { dropdown.classList.add('hidden'); return; }
         
-        const memberMatches = DB.members.filter(m => m.name.toLowerCase().includes(query) || m.email.toLowerCase().includes(query) || m.phone.toLowerCase().includes(query)).slice(0, 5);
-        const bookingMatches = DB.bookings.filter(b => b.memberName.toLowerCase().includes(query) || b.court.toLowerCase().includes(query)).slice(0, 5);
+        const memberMatches = DB.members.filter(m => ((m.name||'').toLowerCase().includes(query) || (m.email||'').toLowerCase().includes(query) || (m.phone||'').toLowerCase().includes(query))).slice(0, 8);
+        const bookingMatches = DB.bookings.filter(b => ((b.memberName||'').toLowerCase().includes(query) || ((b.court||'').toLowerCase().includes(query)))).slice(0, 5);
         
         if (memberMatches.length === 0 && bookingMatches.length === 0) {
             dropdown.innerHTML = '<div class="search-no-results">Ingen treff for "' + query + '"</div>';
@@ -2390,7 +2390,7 @@ function initializeSearch() {
                 html += '<div class="search-section"><div class="search-section-title">Medlemmer</div>';
                 html += memberMatches.map(m => {
                     const initials = m.name.split(' ').map(n => n[0]).join('').substring(0, 2);
-                    return '<div class="search-result" data-type="member" data-id="' + m.id + '"><div class="search-result-icon" style="background:' + m.avatar + '">' + initials + '</div><div class="search-result-text"><div class="search-result-title">' + m.name + '</div><div class="search-result-subtitle">' + m.membership + ' · ' + m.email + '</div></div></div>';
+                    return '<div class="search-result" data-type="member" data-id="' + m.id + '"><div class="search-result-icon" style="background:' + m.avatar + '">' + initials + '</div><div class="search-result-text"><div class="search-result-title">' + m.name + '</div><div class="search-result-subtitle">' + ((m.membership||'') + ((m.email || m.phone) ? ' \u00b7 ' + (m.email || m.phone) : '')) + '</div></div></div>';
                 }).join('');
                 html += '</div>';
             }
@@ -2466,7 +2466,7 @@ function renderMembers() {
     const tbody = document.getElementById('membersTableBody');
     let filtered = DB.members;
     if (currentFilter !== 'all') filtered = filtered.filter(m => m.status === currentFilter);
-    if (currentSearch) filtered = filtered.filter(m => m.name.toLowerCase().includes(currentSearch) || m.email.toLowerCase().includes(currentSearch) || m.phone.toLowerCase().includes(currentSearch));
+    if (currentSearch) filtered = filtered.filter(m => ((m.name||'').toLowerCase().includes(currentSearch) || (m.email||'').toLowerCase().includes(currentSearch) || (m.phone||'').toLowerCase().includes(currentSearch) || (m.membership||'').toLowerCase().includes(currentSearch)));
     document.getElementById('memberCount').textContent = filtered.length;
     
     if (filtered.length === 0) {
